@@ -30,18 +30,8 @@ const AuthRoute = ({ children }) => {
 // Quiz Route
 const QuizRoute = () => {
   if (isLoggedIn()) {
-    // Logged in + has result → go to result
-    if (hasResult()) {
-      return <Navigate to="/result" replace />
-    }
-    // Logged in + no result → show quiz
     return <Quiz guestMode={false} />
   }
-  // Guest + already took quiz → go to result
-  if (hasGuestResult()) {
-    return <Navigate to="/result" replace />
-  }
-  // Guest + no quiz taken → show quiz
   return <Quiz guestMode={true} />
 }
 

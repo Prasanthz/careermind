@@ -47,7 +47,11 @@ export default function Landing() {
               Login
             </button>
             <button
-              onClick={() => navigate('/quiz')}
+              onClick={() => {
+                localStorage.removeItem('result')
+                localStorage.removeItem('guestResult')
+                navigate('/quiz')
+              }}
               className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-700 transition-all font-semibold"
             >
               Take Free Test
@@ -83,7 +87,11 @@ export default function Landing() {
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <button
-              onClick={() => navigate('/quiz')}
+              onClick={() => {
+                localStorage.removeItem('result')
+                localStorage.removeItem('guestResult')
+                navigate('/quiz')
+              }}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg shadow-purple-900/50"
             >
               🎯 Take Free Test Now
@@ -215,7 +223,11 @@ export default function Landing() {
             {/* Two buttons — guest or login */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button
-                onClick={() => navigate('/quiz')}
+                onClick={() => {
+                  localStorage.removeItem('result')
+                  localStorage.removeItem('guestResult')
+                  navigate('/quiz')
+                }}
                 className="px-10 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg"
               >
                 🚀 Start Free Test Now

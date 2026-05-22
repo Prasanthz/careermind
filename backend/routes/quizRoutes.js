@@ -2,7 +2,6 @@ const express = require('express')
 const router = express.Router()
 const db = require('../config/db')
 const Groq = require('groq-sdk')
-
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 const auth = require('../middleware/authMiddleware')
 
@@ -35,17 +34,28 @@ router.get('/latest-result', auth, async (req, res) => {
   }
 })
 
+// DELETE clear result for retake
+router.delete('/clear-result', auth, async (req, res) => {
+  try {
+    await db.execute(
+      'DELETE FROM test_attempts WHERE user_id = ?',
+      [req.user.id]
+    )
+    res.json({ message: 'Result cleared' })
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 // POST submit answers → AI analysis
 router.post('/submit', async (req, res) => {
   try {
     const { answers, stage } = req.body
 
-    // Get questions to match answers
     const [questions] = await db.execute(
       'SELECT * FROM questions ORDER BY display_order'
     )
 
-    // Build answers text
     let answersText = ''
     questions.forEach((q, i) => {
       const ans = answers[i]
@@ -53,32 +63,44 @@ router.post('/submit', async (req, res) => {
       answersText += `Q${i + 1}. ${q.question_text} → ${chosen}\n`
     })
 
-    // Call Groq AI
     const completion = await groq.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
         {
           role: 'user',
-          content: `Analyze this personality test and return JSON only (no extra text, no markdown):
+          content: `You are an MBTI personality expert. Analyze these answers carefully.
+
+IMPORTANT RULES:
+- Do NOT always return INTJ
+- Analyze answers honestly and return the CORRECT personality type
+- Count each dimension separately:
+  * Extrovert(A) vs Introvert(B) based on social questions
+  * Sensing(A) vs Intuition(B) based on practical vs ideas questions  
+  * Thinking(A) vs Feeling(B) based on logic vs emotion questions
+  * Judging(A) vs Perceiving(B) based on structure vs flexibility questions
+- If mostly B answers → likely INFP, ISFP, ISFJ, INFJ type
+- If mostly A answers → likely ENTJ, ESTJ, ENFJ type
+- Return ONLY valid JSON, no extra text, no markdown
 
 User Stage: ${stage}
-User Location: India. All salary ranges must be in LPA format only (e.g. 4 - 8 LPA). Do NOT use any currency symbol. Be realistic for Indian job market.
+User Location: India. Salaries in LPA format only (e.g. 4 - 8 LPA). No currency symbol.
+
 Answers:
 ${answersText}
 
-Return this exact JSON:
+Return this exact JSON structure:
 {
-  "personality_type": "INTJ",
-  "personality_name": "The Architect",
+  "personality_type": "4 letter MBTI code based on actual answers",
+  "personality_name": "The actual name for this type",
   "description": "2-3 sentence description",
   "top_traits": ["trait1", "trait2", "trait3", "trait4", "trait5"],
   "improve_traits": ["area1", "area2", "area3"],
   "top_careers": [
-    {"title": "Career 1", "reason": "why it fits", "salary": "4 - 8 LPA"},
-    {"title": "Career 2", "reason": "why it fits", "salary": "4 - 8 LPA"},
-    {"title": "Career 3", "reason": "why it fits", "salary": "4 - 8 LPA"},
-    {"title": "Career 4", "reason": "why it fits", "salary": "4 - 8 LPA"},
-    {"title": "Career 5", "reason": "why it fits", "salary": "4 - 8 LPA"}
+    {"title": "Career 1", "reason": "why it fits", "salary": "X - Y LPA"},
+    {"title": "Career 2", "reason": "why it fits", "salary": "X - Y LPA"},
+    {"title": "Career 3", "reason": "why it fits", "salary": "X - Y LPA"},
+    {"title": "Career 4", "reason": "why it fits", "salary": "X - Y LPA"},
+    {"title": "Career 5", "reason": "why it fits", "salary": "X - Y LPA"}
   ],
   "courses": [
     {"name": "Course name", "platform": "Coursera", "url": "https://coursera.org", "duration": "2 months", "free": true},
@@ -99,7 +121,7 @@ Return this exact JSON:
 }`
         }
       ],
-      temperature: 0.7,
+      temperature: 0.9,
       max_tokens: 2000,
     })
 
@@ -107,7 +129,6 @@ Return this exact JSON:
     const clean = text.replace(/```json|```/g, '').trim()
     const result = JSON.parse(clean)
 
-    // Save to database if user is logged in
     const token = req.headers.authorization?.split(' ')[1]
     if (token) {
       try {

@@ -55,17 +55,15 @@ export default function Result() {
   }
 
   useEffect(() => {
-  // Logged in → use result, Guest → use guestResult
-  const saved = isLoggedIn()
-    ? localStorage.getItem('result')
-    : localStorage.getItem('guestResult')
-
-  if (!saved) {
-    navigate('/')
-    return
-  }
-  setResult(JSON.parse(saved))
-}, [])
+    const saved = isLoggedIn()
+      ? localStorage.getItem('result')
+      : localStorage.getItem('guestResult')
+    if (!saved) {
+      navigate('/')
+      return
+    }
+    setResult(JSON.parse(saved))
+  }, [])
 
   if (!result) return (
     <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
@@ -275,8 +273,20 @@ export default function Result() {
           {/* Retake Quiz — only for logged in */}
           {isLoggedIn() && (
             <button
-              onClick={() => {
+              onClick={async () => {
+                // Clear local result
                 localStorage.removeItem('result')
+                localStorage.removeItem('guestResult')
+                
+                // Also clear from database if logged in
+                const token = localStorage.getItem('token')
+                if (token) {
+                  await fetch('http://localhost:5000/api/quiz/clear-result', {
+                    method: 'DELETE',
+                    headers: { Authorization: `Bearer ${token}` }
+                  })
+                }
+                
                 navigate('/quiz', { replace: true })
               }}
               className="flex-1 py-4 border border-purple-600 rounded-xl font-semibold hover:bg-purple-600/20 transition-all"
