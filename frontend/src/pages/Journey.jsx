@@ -1,0 +1,439 @@
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+
+export default function Journey() {
+  const navigate = useNavigate()
+  const [result, setResult] = useState(null)
+  const [completedTasks, setCompletedTasks] = useState({})
+  const [streak, setStreak] = useState(0)
+  const [points, setPoints] = useState(0)
+  const [activePhase, setActivePhase] = useState(0)
+  const [todayDone, setTodayDone] = useState(false)
+  const [activeTab, setActiveTab] = useState('today') // 'today' | 'phases' | 'badges'
+  const handleLogout = () => {
+    // Keep guestResult if any, clear everything else
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    localStorage.removeItem('loginExpiry')
+    localStorage.removeItem('result')
+    navigate('/login', { replace: true })
+  }
+
+  useEffect(() => {
+    const saved = localStorage.getItem('result')
+    if (!saved) { navigate('/result'); return }
+    setResult(JSON.parse(saved))
+
+    const savedTasks = localStorage.getItem('completedTasks')
+    if (savedTasks) setCompletedTasks(JSON.parse(savedTasks))
+
+    const savedStreak = localStorage.getItem('streak')
+    if (savedStreak) setStreak(parseInt(savedStreak))
+
+    const savedPoints = localStorage.getItem('points')
+    if (savedPoints) setPoints(parseInt(savedPoints))
+
+    // ✅ Resume from last active phase
+    const savedPhase = localStorage.getItem('activePhase')
+    if (savedPhase) setActivePhase(parseInt(savedPhase))
+
+    // Streak logic
+    const lastActive = localStorage.getItem('lastActive')
+    const today = new Date().toDateString()
+    const yesterday = new Date(Date.now() - 86400000).toDateString()
+
+    if (lastActive === today) {
+      setTodayDone(true)
+    } else if (lastActive && lastActive !== today && lastActive !== yesterday) {
+      localStorage.setItem('streak', '0')
+      setStreak(0)
+    }
+  }, [])
+
+  // Mark today as active
+  const markTodayActive = () => {
+    const today = new Date().toDateString()
+    const lastActive = localStorage.getItem('lastActive')
+    if (lastActive !== today) {
+      const newStreak = streak + 1
+      setStreak(newStreak)
+      localStorage.setItem('streak', newStreak.toString())
+      localStorage.setItem('lastActive', today)
+      setTodayDone(true)
+    }
+  }
+
+  const toggleTask = (phaseIndex, taskIndex) => {
+    const key = `${phaseIndex}-${taskIndex}`
+    const updated = { ...completedTasks, [key]: !completedTasks[key] }
+    setCompletedTasks(updated)
+    localStorage.setItem('completedTasks', JSON.stringify(updated))
+
+    // ✅ Save current phase
+    localStorage.setItem('activePhase', phaseIndex.toString())
+
+    if (!completedTasks[key]) {
+      const newPoints = points + 10
+      setPoints(newPoints)
+      localStorage.setItem('points', newPoints.toString())
+      markTodayActive()
+    } else {
+      const newPoints = Math.max(0, points - 10)
+      setPoints(newPoints)
+      localStorage.setItem('points', newPoints.toString())
+    }
+  }
+
+  const getTotalTasks = () => {
+    if (!result?.roadmap) return 0
+    return result.roadmap.reduce((sum, p) => sum + (p.tasks?.length || 0), 0)
+  }
+
+  const getCompletedCount = () => Object.values(completedTasks).filter(Boolean).length
+
+  const getProgress = () => {
+    const total = getTotalTasks()
+    if (total === 0) return 0
+    return Math.round((getCompletedCount() / total) * 100)
+  }
+
+  const getPhaseProgress = (phaseIndex, tasks) => {
+    if (!tasks?.length) return 0
+    const done = tasks.filter((_, i) => completedTasks[`${phaseIndex}-${i}`]).length
+    return Math.round((done / tasks.length) * 100)
+  }
+
+  // Build today's schedule from roadmap
+  const getTodaySchedule = () => {
+    if (!result?.roadmap) return []
+    const totalDays = result.roadmap.reduce((sum, p) => sum + (p.tasks?.length || 0) * 3, 0)
+    const startDate = localStorage.getItem('journeyStart') || new Date().toDateString()
+    if (!localStorage.getItem('journeyStart')) {
+      localStorage.setItem('journeyStart', startDate)
+    }
+    const daysPassed = Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000)
+    const dayOfWeek = new Date().toLocaleDateString('en-IN', { weekday: 'long' })
+    const dateStr = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
+
+    // Pick tasks for today based on day number
+    const allTasks = []
+    result.roadmap.forEach((phase, pi) => {
+      phase.tasks?.forEach((task, ti) => {
+        allTasks.push({ task, phaseIndex: pi, taskIndex: ti, phase: phase.month })
+      })
+    })
+
+    // Show 2-3 tasks per day cycling
+    const startIdx = (daysPassed * 2) % Math.max(allTasks.length, 1)
+    const todayTasks = allTasks.slice(startIdx, startIdx + 2)
+    if (todayTasks.length < 2 && allTasks.length > 0) {
+      todayTasks.push(...allTasks.slice(0, 2 - todayTasks.length))
+    }
+
+    return { todayTasks, daysPassed: daysPassed + 1, dayOfWeek, dateStr }
+  }
+
+  const badges = [
+    { icon: '🎯', label: 'First Step', desc: 'Complete your first task', earned: getCompletedCount() >= 1 },
+    { icon: '⭐', label: 'On a Roll', desc: 'Complete 5 tasks', earned: getCompletedCount() >= 5 },
+    { icon: '🔥', label: '7 Day Streak', desc: 'Login 7 days in a row', earned: streak >= 7 },
+    { icon: '💪', label: 'Halfway There', desc: 'Reach 50% progress', earned: getProgress() >= 50 },
+    { icon: '🚀', label: 'Phase Master', desc: 'Complete a full phase', earned: result?.roadmap?.some((p, i) => getPhaseProgress(i, p.tasks) === 100) },
+    { icon: '🏆', label: 'Career Ready', desc: 'Complete all tasks', earned: getProgress() === 100 },
+  ]
+
+  const schedule = getTodaySchedule()
+
+  if (!result) return (
+    <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
+      <div className="text-center">
+        <div className="text-5xl mb-4 animate-pulse">🚀</div>
+        <p className="text-purple-400 font-semibold">Loading your journey...</p>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="min-h-screen bg-[#1A1A2E] text-white pb-20">
+
+      {/* Header */}
+      <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-5">
+        <div className="max-w-3xl mx-auto flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold text-purple-400">🚀 My Career Journey</h1>
+            <p className="text-gray-400 text-xs mt-0.5">{result.personality_type} — {result.personality_name}</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-center">
+              <div className="text-orange-400 font-bold text-lg">🔥 {streak}</div>
+              <div className="text-gray-500 text-xs">streak</div>
+            </div>
+            <div className="text-center">
+              <div className="text-yellow-400 font-bold text-lg">⭐ {points}</div>
+              <div className="text-gray-500 text-xs">points</div>
+            </div>
+            <button
+              onClick={() => navigate('/result')}
+              className="text-gray-400 text-sm border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-purple-500 transition-all"
+            >
+              ← Back
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
+            >
+              🚪 Logout
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Overall Progress Bar */}
+      <div className="max-w-3xl mx-auto px-4 mt-4">
+        <div className="flex justify-between text-sm mb-1">
+          <span className="text-gray-400">Overall Progress</span>
+          <span className="text-purple-400 font-bold">{getProgress()}% — Day {schedule.daysPassed}</span>
+        </div>
+        <div className="w-full bg-[#16213E] rounded-full h-3">
+          <motion.div
+            className="bg-gradient-to-r from-purple-600 to-pink-600 h-3 rounded-full"
+            animate={{ width: `${getProgress()}%` }}
+            transition={{ duration: 0.6 }}
+          />
+        </div>
+      </div>
+
+      {/* Tab Navigation */}
+      <div className="max-w-3xl mx-auto px-4 mt-4">
+        <div className="flex bg-[#16213E] rounded-xl p-1 border border-purple-900/30">
+          {[
+            { key: 'today', label: "📅 Today's Plan" },
+            { key: 'phases', label: '📋 All Phases' },
+            { key: 'badges', label: '🏆 Badges' },
+          ].map(tab => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === tab.key
+                  ? 'bg-purple-600 text-white'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="max-w-3xl mx-auto px-4 mt-4 space-y-4">
+
+        {/* TODAY'S PLAN TAB */}
+        {activeTab === 'today' && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+
+            {/* Date + Streak Card */}
+            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mb-4">
+              <div className="flex justify-between items-start">
+                <div>
+                  <div className="text-purple-400 font-bold text-lg">{schedule.dayOfWeek}</div>
+                  <div className="text-gray-400 text-sm">{schedule.dateStr}</div>
+                  <div className="text-white font-semibold mt-1">Day {schedule.daysPassed} of your journey</div>
+                </div>
+                <div className={`px-4 py-2 rounded-xl text-sm font-bold ${todayDone ? 'bg-green-600/30 text-green-400 border border-green-600/40' : 'bg-orange-600/20 text-orange-400 border border-orange-600/30'}`}>
+                  {todayDone ? '✅ Done Today!' : '⏳ Pending'}
+                </div>
+              </div>
+
+              {/* Streak row */}
+              <div className="flex gap-1 mt-4">
+                {[...Array(7)].map((_, i) => (
+                  <div
+                    key={i}
+                    className={`flex-1 h-2 rounded-full ${i < (streak % 7) ? 'bg-orange-500' : 'bg-[#1A1A2E]'}`}
+                  />
+                ))}
+              </div>
+              <div className="text-gray-500 text-xs mt-1">{streak} day streak — keep going!</div>
+            </div>
+
+            {/* Today's Tasks */}
+            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mb-4">
+              <h2 className="font-bold text-lg mb-1">📌 Today's Tasks</h2>
+              <p className="text-gray-400 text-xs mb-4">Complete these to earn points and keep your streak!</p>
+
+              <div className="space-y-3">
+                {schedule.todayTasks?.map((item, idx) => {
+                  const key = `${item.phaseIndex}-${item.taskIndex}`
+                  const done = completedTasks[key]
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => toggleTask(item.phaseIndex, item.taskIndex)}
+                      className={`w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all ${
+                        done
+                          ? 'bg-purple-600/20 border-purple-500/50'
+                          : 'bg-[#1A1A2E] border-purple-900/20 hover:border-purple-500/50'
+                      }`}
+                    >
+                      <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 ${done ? 'bg-purple-600 border-purple-600' : 'border-gray-600'}`}>
+                        {done && <span className="text-white text-sm">✓</span>}
+                      </div>
+                      <div className="flex-1">
+                        <div className={`font-medium ${done ? 'line-through text-gray-500' : 'text-white'}`}>{item.task}</div>
+                        <div className="text-gray-500 text-xs mt-0.5">{item.phase}</div>
+                      </div>
+                      {done
+                        ? <span className="text-yellow-400 text-sm font-bold">+10 ⭐</span>
+                        : <span className="text-gray-600 text-sm">+10 ⭐</span>
+                      }
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Daily Schedule */}
+            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+              <h2 className="font-bold text-lg mb-4">🕐 Suggested Daily Schedule</h2>
+              <div className="space-y-3">
+                {[
+                  { time: '6:00 AM', task: 'Morning review — read yesterday\'s notes', icon: '🌅' },
+                  { time: '7:00 AM', task: 'Watch 1 tutorial video (20–30 mins)', icon: '▶️' },
+                  { time: '12:00 PM', task: 'Lunch break practice — solve 1 problem', icon: '💡' },
+                  { time: '6:00 PM', task: 'Main study session (1–2 hrs)', icon: '📚' },
+                  { time: '8:00 PM', task: 'Build / code / practice project', icon: '💻' },
+                  { time: '10:00 PM', task: 'Review + mark today\'s tasks done', icon: '✅' },
+                ].map((slot, i) => (
+                  <div key={i} className="flex items-center gap-4 bg-[#1A1A2E] rounded-xl p-3 border border-purple-900/20">
+                    <div className="text-lg">{slot.icon}</div>
+                    <div>
+                      <div className="text-purple-400 text-xs font-bold">{slot.time}</div>
+                      <div className="text-white text-sm">{slot.task}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* ALL PHASES TAB */}
+        {activeTab === 'phases' && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+
+            {/* Phase Tabs */}
+            <div className="flex gap-2 flex-wrap mb-4">
+              {result.roadmap?.map((phase, i) => (
+                <button
+                  key={i}
+                  onClick={() => setActivePhase(i)}
+                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    activePhase === i
+                      ? 'bg-purple-600 text-white'
+                      : 'bg-[#16213E] text-gray-400 border border-purple-900/30 hover:border-purple-500'
+                  }`}
+                >
+                  Phase {i + 1} {getPhaseProgress(i, phase.tasks) === 100 ? '✅' : `${getPhaseProgress(i, phase.tasks)}%`}
+                </button>
+              ))}
+            </div>
+
+            {result.roadmap?.[activePhase] && (() => {
+              const phase = result.roadmap[activePhase]
+              const prog = getPhaseProgress(activePhase, phase.tasks)
+              return (
+                <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+                  <div className="flex justify-between items-center mb-2">
+                    <div>
+                      <h3 className="font-bold text-purple-300">{phase.month}</h3>
+                      <p className="text-white font-medium">{phase.goal}</p>
+                    </div>
+                    <span className="text-purple-400 font-bold text-xl">{prog}%</span>
+                  </div>
+                  <div className="w-full bg-[#1A1A2E] rounded-full h-2 mb-5">
+                    <div className="bg-purple-600 h-2 rounded-full transition-all" style={{ width: `${prog}%` }} />
+                  </div>
+                  <div className="space-y-3">
+                    {phase.tasks?.map((task, j) => {
+                      const key = `${activePhase}-${j}`
+                      const done = completedTasks[key]
+                      return (
+                        <button
+                          key={j}
+                          onClick={() => toggleTask(activePhase, j)}
+                          className={`w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all ${
+                            done
+                              ? 'bg-purple-600/20 border-purple-500/50'
+                              : 'bg-[#1A1A2E] border-purple-900/20 hover:border-purple-500/50'
+                          }`}
+                        >
+                          <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 ${done ? 'bg-purple-600 border-purple-600' : 'border-gray-600'}`}>
+                            {done && <span className="text-white text-sm">✓</span>}
+                          </div>
+                          <span className={`font-medium flex-1 ${done ? 'line-through text-gray-500' : 'text-white'}`}>{task}</span>
+                          {done
+                            ? <span className="text-yellow-400 text-sm font-bold">+10 ⭐</span>
+                            : <span className="text-gray-600 text-sm">+10 ⭐</span>
+                          }
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+          </motion.div>
+        )}
+
+        {/* BADGES TAB */}
+        {activeTab === 'badges' && (
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+              <h2 className="font-bold text-lg mb-1">🏆 Your Badges</h2>
+              <p className="text-gray-400 text-xs mb-5">{badges.filter(b => b.earned).length} of {badges.length} earned</p>
+              <div className="grid grid-cols-2 gap-4">
+                {badges.map((badge, i) => (
+                  <div
+                    key={i}
+                    className={`rounded-xl p-5 text-center border transition-all ${
+                      badge.earned
+                        ? 'bg-purple-600/20 border-purple-500/50'
+                        : 'bg-[#1A1A2E] border-purple-900/20 opacity-40'
+                    }`}
+                  >
+                    <div className="text-4xl mb-2">{badge.icon}</div>
+                    <div className="font-bold text-white text-sm">{badge.label}</div>
+                    <div className="text-gray-400 text-xs mt-1">{badge.desc}</div>
+                    {badge.earned && <div className="text-purple-400 text-xs font-semibold mt-2">✅ Earned!</div>}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Points summary */}
+            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mt-4">
+              <h2 className="font-bold text-lg mb-4">⭐ Points Summary</h2>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-[#1A1A2E] rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-yellow-400">{points}</div>
+                  <div className="text-gray-400 text-xs mt-1">Total Points</div>
+                </div>
+                <div className="bg-[#1A1A2E] rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-orange-400">🔥 {streak}</div>
+                  <div className="text-gray-400 text-xs mt-1">Day Streak</div>
+                </div>
+                <div className="bg-[#1A1A2E] rounded-xl p-4 text-center">
+                  <div className="text-2xl font-bold text-purple-400">{getCompletedCount()}</div>
+                  <div className="text-gray-400 text-xs mt-1">Tasks Done</div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+      </div>
+    </div>
+  )
+}
