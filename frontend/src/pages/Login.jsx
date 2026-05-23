@@ -22,7 +22,7 @@ export default function Login() {
     setLoading(true)
 
     try {
-      const res = await fetch('${import.meta.env.VITE_API_URL}/api/auth/login', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
@@ -58,7 +58,7 @@ export default function Login() {
             // Check if guest had already taken quiz
             const guestResult = localStorage.getItem('guestResult')
 
-            const resultRes = await fetch('${import.meta.env.VITE_API_URL}/api/quiz/latest-result', {
+            const resultRes = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/latest-result`, {
               headers: { Authorization: `Bearer ${data.token}` }
             })
             const resultData = await resultRes.json()

@@ -27,10 +27,10 @@ export default function Admin() {
     try {
       const headers = { Authorization: `Bearer ${token}` }
       const [aRes, uRes, tRes, qRes] = await Promise.all([
-        fetch('${import.meta.env.VITE_API_URL}/api/admin/analytics', { headers }),
-        fetch('${import.meta.env.VITE_API_URL}/api/admin/users', { headers }),
-        fetch('${import.meta.env.VITE_API_URL}/api/admin/attempts', { headers }),
-        fetch('${import.meta.env.VITE_API_URL}/api/admin/questions', { headers }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/admin/analytics`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/admin/users`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/admin/attempts`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions`, { headers }),
       ])
       const [aData, uData, tData, qData] = await Promise.all([
         aRes.json(), uRes.json(), tRes.json(), qRes.json()
@@ -72,7 +72,7 @@ export default function Admin() {
       return
     }
     try {
-      await fetch('${import.meta.env.VITE_API_URL}/api/admin/questions', {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(newQuestion)
