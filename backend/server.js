@@ -16,6 +16,12 @@ app.get('/', (req, res) => {
   })
 })
 
+// Keep Render awake - ping every 10 minutes
+const https = require('https')
+setInterval(() => {
+  https.get('https://careermind-9t9t.onrender.com/', () => {})
+}, 10 * 60 * 1000)
+
 app.use('/api/auth', require('./routes/authRoutes'))
 app.use('/api/quiz', require('./routes/quizRoutes'))
 app.use('/api/result', require('./routes/resultRoutes'))
