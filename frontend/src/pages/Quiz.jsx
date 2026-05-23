@@ -143,7 +143,15 @@ export default function Quiz({ guestMode = false }){
           <span className="text-purple-400 font-semibold text-sm">
             Question {current + 1} of {questions.length}
           </span>
-          <span className="text-gray-400 text-sm">{progress}% done</span>
+          <div className="flex items-center gap-3">
+            <span className="text-gray-400 text-sm">{progress}% done</span>
+            <button
+              onClick={() => navigate('/')}
+              className="text-xs text-red-400 border border-red-400/40 px-3 py-1 rounded-lg hover:bg-red-400/10 transition-all"
+            >
+              X Exit
+            </button>
+          </div>
         </div>
 
         {/* Progress Bar */}
