@@ -1,7 +1,3 @@
-"""
-CareerMind AI — Report Generator
-Usage: python generateReport.py <json_string> <output_pdf> <output_png>
-"""
 import sys, json, textwrap, os, math
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -30,31 +26,27 @@ RED_SOFT    = colors.HexColor('#F87171')
 
 W, H = A4  # 595 x 842 pt
 
-# ─── DRAW BRAIN+CIRCUIT LOGO (ReportLab vector) ──────────────
-def draw_logo_rl(c, x, y, size=28):
-    """Draw brain+circuit logo using ReportLab canvas at position (x,y), size in pts."""
-    s = size / 28.0  # scale factor
 
-    # Gradient circle background
-    steps = 20
+# ─── DRAW BRAIN+CIRCUIT LOGO (solid colors, no alpha — PDF compatible) ────
+def draw_logo_rl(c, x, y, size=28):
+    """Draw brain+circuit logo using ReportLab canvas. Solid colors only for PDF compatibility."""
+    s = size / 28.0
+
+    # Solid concentric circles: purple-dark center → pink outer ring
+    steps = 16
     for i in range(steps, 0, -1):
         t = i / steps
-        r = PURPLE.red * t + PINK.red * (1 - t)
-        g = PURPLE.green * t + PINK.green * (1 - t)
-        b = PURPLE.blue * t + PINK.blue * (1 - t)
-        c.setFillColorRGB(r, g, b, alpha=0.15 + 0.05 * (steps - i) / steps)
-        radius = size * 0.6 * i / steps
-        c.circle(x, y, radius, fill=1, stroke=0)
+        r = PURPLE_DARK.red   + (PINK.red   - PURPLE_DARK.red)   * (1 - t)
+        g = PURPLE_DARK.green + (PINK.green - PURPLE_DARK.green) * (1 - t)
+        b = PURPLE_DARK.blue  + (PINK.blue  - PURPLE_DARK.blue)  * (1 - t)
+        c.setFillColorRGB(r, g, b)
+        c.setStrokeColorRGB(r, g, b)
+        c.circle(x, y, size * 0.55 * i / steps, fill=1, stroke=0)
 
-    # Outer ring
-    c.setStrokeColorRGB(PURPLE.red, PURPLE.green, PURPLE.blue)
+    # Brain lobes — white solid
+    c.setStrokeColorRGB(1, 1, 1)
+    c.setFillColorRGB(1, 1, 1)
     c.setLineWidth(1.5 * s)
-    c.circle(x, y, size * 0.55, fill=0, stroke=1)
-
-    # Brain lobes (simplified)
-    c.setFillColorRGB(1, 1, 1, alpha=0.9)
-    c.setStrokeColorRGB(1, 1, 1, alpha=0.9)
-    c.setLineWidth(1.2 * s)
 
     # Left lobe
     p = c.beginPath()
@@ -76,14 +68,14 @@ def draw_logo_rl(c, x, y, size=28):
     p.lineTo(x, y - 7*s)
     c.drawPath(p, fill=0, stroke=1)
 
-    # Circuit dots
-    c.setFillColorRGB(PINK.red, PINK.green, PINK.blue, alpha=1)
+    # Circuit dots — pink solid
+    c.setFillColorRGB(PINK.red, PINK.green, PINK.blue)
     for dx, dy in [(-6, 4), (6, 4), (-6, -4), (6, -4), (0, 7), (0, -7)]:
         c.circle(x + dx*s, y + dy*s, 1.5*s, fill=1, stroke=0)
 
-    # Circuit lines
-    c.setStrokeColorRGB(PINK.red, PINK.green, PINK.blue, alpha=0.7)
-    c.setLineWidth(0.8*s)
+    # Circuit lines — pink solid
+    c.setStrokeColorRGB(PINK.red, PINK.green, PINK.blue)
+    c.setLineWidth(0.8 * s)
     c.line(x - 6*s, y + 4*s, x - 10*s, y + 4*s)
     c.line(x + 6*s, y + 4*s, x + 10*s, y + 4*s)
     c.line(x - 6*s, y - 4*s, x - 10*s, y - 4*s)
@@ -124,7 +116,7 @@ class CareerMindCanvas(pdfcanvas.Canvas):
             self.setFillColorRGB(r, g, b)
             self.rect(W * i / steps, H - 52*mm, W / steps + 1, 52*mm, fill=1, stroke=0)
 
-        # Logo icon
+        # ── LOGO (new addition — solid, no alpha) ──
         draw_logo_rl(self, 22*mm, H - 26*mm, size=22)
 
         # App name
@@ -480,7 +472,7 @@ def generate_pdf(result, pdf_path):
         bottomMargin=MARGIN_BOTTOM,
     )
 
-    def make_canvas(filename, doc):
+    def make_canvas(filename, doc=None, **kwargs):
         c = CareerMindCanvas(filename, result)
         c.setTitle(f"CareerMind AI — {ptype} {pname}")
         return c
@@ -555,8 +547,9 @@ def generate_png(result, png_path):
     # Header bar
     draw.rectangle([0, 0, CW, 80], fill=(76, 29, 149, 220))
 
-    # Header logo + text
+    # ── LOGO in header (new addition) ──
     draw_brain_pil(draw, 50, 40, size=30)
+
     try:
         font_hdr = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 22)
         font_sub = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 13)
@@ -614,7 +607,10 @@ def generate_png(result, png_path):
 
     # Bottom bar
     draw.rectangle([0, CH-50, CW, CH], fill=(15, 15, 26, 220))
+
+    # ── LOGO in bottom bar (new addition) ──
     draw_brain_pil(draw, 40, CH-25, size=18)
+
     draw.text((65, CH-38), "CareerMind AI", font=font_sub, fill=(168, 85, 247, 220))
     draw.text((65, CH-22), "careermind.app", font=font_sm,  fill=(148, 163, 184, 180))
 
