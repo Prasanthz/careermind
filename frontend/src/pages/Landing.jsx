@@ -18,32 +18,12 @@ export default function Landing() {
       .catch(() => {})
   }, [])
 
-  // ✅ Check if user is logged in
   const isLoggedIn = () => {
     const token = localStorage.getItem('token')
     const expiry = localStorage.getItem('loginExpiry')
     if (!token || !expiry) return false
     if (expiry === 'never') return true
     return Date.now() < parseInt(expiry)
-  }
-
-  // ✅ Smart navigation: logged in → result, logged out → login
-  const handleTakeTest = () => {
-    if (isLoggedIn()) {
-      // If they already have a result, go there; otherwise go to quiz
-      if (localStorage.getItem('result')) {
-        navigate('/result')
-      } else {
-        navigate('/quiz')
-      }
-    } else {
-      navigate('/login')
-    }
-  }
-
-  // ✅ Sample quiz: always goes directly to quiz (guest mode), no login needed
-  const handleSampleQuiz = () => {
-    navigate('/quiz')
   }
 
   const features = [
@@ -71,8 +51,6 @@ export default function Landing() {
     { num: '04', title: 'Start Journey', desc: 'Follow your personalized learning roadmap' },
   ]
 
-  const loggedIn = isLoggedIn()
-
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white">
 
@@ -81,31 +59,18 @@ export default function Landing() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
           <img src="/logo.svg" alt="CareerMind AI" className="h-10 w-auto" />
           <div className="flex gap-3">
-            {loggedIn ? (
-              // ✅ Logged in: show Go to Result button
-              <button
-                onClick={() => navigate(localStorage.getItem('result') ? '/result' : '/quiz')}
-                className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-700 transition-all font-semibold"
-              >
-                My Result →
-              </button>
-            ) : (
-              // ✅ Logged out: show Login + Take Free Test
-              <>
-                <button
-                  onClick={() => navigate('/login')}
-                  className="px-4 py-2 text-purple-400 border border-purple-400 rounded-lg hover:bg-purple-400 hover:text-white transition-all"
-                >
-                  Login
-                </button>
-                <button
-                  onClick={handleTakeTest}
-                  className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-700 transition-all font-semibold"
-                >
-                  Take Free Test
-                </button>
-              </>
-            )}
+            <button
+              onClick={() => isLoggedIn() ? navigate('/result') : navigate('/login')}
+              className="px-4 py-2 text-purple-400 border border-purple-400 rounded-lg hover:bg-purple-400 hover:text-white transition-all"
+            >
+              Login
+            </button>
+            <button
+              onClick={() => isLoggedIn() ? navigate('/result') : navigate('/login')}
+              className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-700 transition-all font-semibold"
+            >
+              Take Free Test
+            </button>
           </div>
         </div>
       </nav>
@@ -130,19 +95,17 @@ export default function Landing() {
             Take a {questionCount}-question personality test and let our AI match you with the perfect career path, courses, and roadmap — completely free.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-            {/* ✅ Main CTA: logged in → result/quiz, logged out → login */}
             <button
-              onClick={handleTakeTest}
+              onClick={() => isLoggedIn() ? navigate('/result') : navigate('/login')}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg shadow-purple-900/50"
             >
-              {loggedIn ? '🎯 Go to My Result' : '🎯 Take Free Test Now'}
+              🎯 Take Free Test Now
             </button>
-            {/* ✅ Sample quiz: always goes to quiz directly, no login */}
             <button
-              onClick={handleSampleQuiz}
+              onClick={() => navigate('/quiz')}
               className="w-full sm:w-auto px-8 py-4 border border-purple-600 rounded-xl text-lg font-semibold hover:bg-purple-600/20 transition-all"
             >
-              Try Sample Quiz →
+              View Sample Result →
             </button>
           </div>
           <div className="flex flex-wrap justify-center gap-8 mt-14">
@@ -238,28 +201,18 @@ export default function Landing() {
             </h2>
             <p className="text-gray-400 mb-8">Join thousands of people who discovered their true calling</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              {/* ✅ CTA section also respects login state */}
               <button
-                onClick={handleTakeTest}
+                onClick={() => isLoggedIn() ? navigate('/result') : navigate('/login')}
                 className="px-10 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg"
               >
-                {loggedIn ? '🎯 Go to My Result' : '🚀 Start Free Test Now'}
+                🚀 Start Free Test Now
               </button>
-              {loggedIn ? (
-                <button
-                  onClick={() => navigate('/journey')}
-                  className="px-10 py-4 border border-purple-600 rounded-xl text-lg font-semibold hover:bg-purple-600/20 transition-all"
-                >
-                  🗺️ My Journey
-                </button>
-              ) : (
-                <button
-                  onClick={() => navigate('/login')}
-                  className="px-10 py-4 border border-purple-600 rounded-xl text-lg font-semibold hover:bg-purple-600/20 transition-all"
-                >
-                  🔐 Login to My Account
-                </button>
-              )}
+              <button
+                onClick={() => isLoggedIn() ? navigate('/result') : navigate('/login')}
+                className="px-10 py-4 border border-purple-600 rounded-xl text-lg font-semibold hover:bg-purple-600/20 transition-all"
+              >
+                🔐 Login to My Account
+              </button>
             </div>
           </motion.div>
         </div>
