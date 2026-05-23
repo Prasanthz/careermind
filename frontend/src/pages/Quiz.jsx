@@ -56,10 +56,8 @@ export default function Quiz({ guestMode = false }){
       const data = await res.json()
 
       if (guestMode) {
-        // Guest — save as guestResult
         localStorage.setItem('guestResult', JSON.stringify(data.result))
       } else {
-        // Logged in — save as result
         localStorage.setItem('result', JSON.stringify(data.result))
       }
 
@@ -137,6 +135,7 @@ export default function Quiz({ guestMode = false }){
   // Quiz Screen
   return (
     <div className="min-h-screen bg-[#1A1A2E] flex flex-col px-4 py-8">
+
       {/* Header */}
       <div className="max-w-lg mx-auto w-full mb-8">
         <div className="flex justify-between items-center mb-3">
