@@ -4,13 +4,15 @@ import { motion } from 'framer-motion'
 
 export default function Journey() {
   const navigate = useNavigate()
+  const user = JSON.parse(localStorage.getItem('user') || '{}')
+
   const [result, setResult] = useState(null)
   const [completedTasks, setCompletedTasks] = useState({})
   const [streak, setStreak] = useState(0)
   const [points, setPoints] = useState(0)
   const [activePhase, setActivePhase] = useState(0)
   const [todayDone, setTodayDone] = useState(false)
-  const [activeTab, setActiveTab] = useState('today') // 'today' | 'phases' | 'badges'
+  const [activeTab, setActiveTab] = useState('today')
 
   // Reminder states
   const [reminderEnabled, setReminderEnabled] = useState(false)
@@ -196,12 +198,26 @@ export default function Journey() {
               <div className="text-yellow-400 font-bold text-lg">⭐ {points}</div>
               <div className="text-gray-500 text-xs">points</div>
             </div>
+
+            {/* Back button */}
             <button
               onClick={() => navigate('/result')}
               className="text-gray-400 text-sm border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-purple-500 transition-all"
             >
               ← Back
             </button>
+
+            {/* Profile avatar */}
+            <button
+              onClick={() => navigate('/profile')}
+              className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center font-bold text-sm border-2 border-purple-500 overflow-hidden"
+            >
+              {user?.profile_pic
+                ? <img src={user.profile_pic} alt="profile" className="w-full h-full object-cover" />
+                : (user?.name?.[0]?.toUpperCase() || '?')}
+            </button>
+
+            {/* Logout */}
             <button
               onClick={handleLogout}
               className="text-sm text-gray-400 border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
