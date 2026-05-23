@@ -320,28 +320,35 @@ def generate_pdf(result, output_path):
 #  SHARE CARD (PNG) GENERATOR  – 1200 × 630 px  (LinkedIn / WhatsApp)
 # ═════════════════════════════════════════════════════════════════════════
 
-# PIL colour helpers
-def rgb(hex_str):
-    hex_str = hex_str.lstrip("#")
-    return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
-
-CARD_W, CARD_H = 1200, 680
-
-C_CARD_BG      = rgb("FFFFFF")
-C_CARD_HEADER  = rgb("1A3A5C")
-C_CARD_NAVY    = rgb("1A3A5C")
-C_CARD_BLUE    = rgb("2E6DA4")
-C_CARD_GRAY    = rgb("F2F2F2")
-C_CARD_DKGRAY  = rgb("4A4A4A")
-C_CARD_MDGRAY  = rgb("787878")
-C_CARD_BLACK   = rgb("1A1A1A")
-C_CARD_GREEN   = rgb("2D6A4F")
-C_CARD_BORDER  = rgb("CCCCCC")
-C_CARD_LIGHT   = rgb("EAF0F8")
-
-
+# ── colour helpers ──────────────────────────────────────────────────────
+def rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+ 
+ 
+# Palette
+IMG_NAVY      = rgb("1A3A5C")
+IMG_BLUE      = rgb("2E6DA4")
+IMG_LIGHT_BLU = rgb("EAF0F8")
+IMG_BG        = rgb("FFFFFF")
+IMG_GRAY      = rgb("F2F2F2")
+IMG_DKGRAY    = rgb("4A4A4A")
+IMG_MDGRAY    = rgb("787878")
+IMG_BLACK     = rgb("1A1A1A")
+IMG_GREEN     = rgb("2D6A4F")
+IMG_ORANGE    = rgb("C25B00")
+IMG_BORDER    = rgb("CCCCCC")
+IMG_PILL_BG   = rgb("1A3A5C")
+IMG_ACCENT_G  = rgb("D4EDDA")
+IMG_ACCENT_Y  = rgb("FFF3CD")
+IMG_WHITE     = (255, 255, 255)
+IMG_HEADER_TX = (168, 196, 224)
+ 
+CARD_W, CARD_H = 1200, 780
+ 
+ 
+# ── font loader ─────────────────────────────────────────────────────────
 def load_font(size, bold=False):
-    """Try to load a system font; fall back to PIL default."""
     candidates = (
         ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
          "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
@@ -360,21 +367,34 @@ def load_font(size, bold=False):
             except Exception:
                 pass
     return ImageFont.load_default()
-
-
-def draw_rect(draw, x, y, w, h, fill, radius=0):
+ 
+ 
+# ── drawing helpers ──────────────────────────────────────────────────────
+def rect(draw, x, y, w, h, fill, radius=0):
     if radius:
-        draw.rounded_rectangle([x, y, x+w, y+h], radius=radius, fill=fill)
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=fill)
     else:
-        draw.rectangle([x, y, x+w, y+h], fill=fill)
-
-
-def wrap_text(text, font, max_width, draw):
+        draw.rectangle([x, y, x + w, y + h], fill=fill)
+ 
+ 
+def text_w(draw, text, font):
+    return int(draw.textlength(text, font=font))
+ 
+ 
+def section_header(draw, x, y, w, label, font, bg=None):
+    """Draws a full-width section label bar; returns new y."""
+    bg = bg or IMG_BLUE
+    rect(draw, x, y, w, 34, bg)
+    draw.text((x + 14, y + 7), label, font=font, fill=C_WHITE)
+    return y + 34
+ 
+ 
+def wrap(draw, text, font, max_w):
     words = text.split()
     lines, line = [], []
     for word in words:
-        test = " ".join(line + [word])
-        if draw.textlength(test, font=font) <= max_width:
+        probe = " ".join(line + [word])
+        if draw.textlength(probe, font=font) <= max_w:
             line.append(word)
         else:
             if line:
@@ -383,139 +403,466 @@ def wrap_text(text, font, max_width, draw):
     if line:
         lines.append(" ".join(line))
     return lines
-
-
+ 
+ 
+# ════════════════════════════════════════════════════════════════════════
+#  MAIN CARD GENERATOR
+# ════════════════════════════════════════════════════════════════════════
+ 
+def rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+ 
+ 
+# Palette
+IMG_NAVY      = rgb("1A3A5C")
+IMG_BLUE      = rgb("2E6DA4")
+IMG_LIGHT_BLU = rgb("EAF0F8")
+IMG_BG        = rgb("FFFFFF")
+IMG_GRAY      = rgb("F2F2F2")
+IMG_DKGRAY    = rgb("4A4A4A")
+IMG_MDGRAY    = rgb("787878")
+IMG_BLACK     = rgb("1A1A1A")
+IMG_GREEN     = rgb("2D6A4F")
+IMG_ORANGE    = rgb("C25B00")
+IMG_BORDER    = rgb("CCCCCC")
+IMG_PILL_BG   = rgb("1A3A5C")
+IMG_ACCENT_G  = rgb("D4EDDA")
+IMG_ACCENT_Y  = rgb("FFF3CD")
+IMG_WHITE     = (255, 255, 255)
+IMG_HEADER_TX = (168, 196, 224)
+ 
+CARD_W, CARD_H = 1200, 780
+ 
+ 
+# ── font loader ─────────────────────────────────────────────────────────
+def load_font(size, bold=False):
+    candidates = (
+        ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+         "/System/Library/Fonts/Helvetica.ttc",
+         "C:/Windows/Fonts/arialbd.ttf"]
+        if bold else
+        ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+         "/System/Library/Fonts/Helvetica.ttc",
+         "C:/Windows/Fonts/arial.ttf"]
+    )
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+ 
+ 
+# ── drawing helpers ──────────────────────────────────────────────────────
+def rect(draw, x, y, w, h, fill, radius=0):
+    if radius:
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=fill)
+    else:
+        draw.rectangle([x, y, x + w, y + h], fill=fill)
+ 
+ 
+def text_w(draw, text, font):
+    return int(draw.textlength(text, font=font))
+ 
+ 
+def section_header(draw, x, y, w, label, font, bg=None):
+    """Draws a full-width section label bar; returns new y."""
+    bg = bg or IMG_BLUE
+    rect(draw, x, y, w, 34, bg)
+    draw.text((x + 14, y + 7), label, font=font, fill=IMG_WHITE)
+    return y + 34
+ 
+ 
+def wrap(draw, text, font, max_w):
+    words = text.split()
+    lines, line = [], []
+    for word in words:
+        probe = " ".join(line + [word])
+        if draw.textlength(probe, font=font) <= max_w:
+            line.append(word)
+        else:
+            if line:
+                lines.append(" ".join(line))
+            line = [word]
+    if line:
+        lines.append(" ".join(line))
+    return lines
+ 
+ 
+# ════════════════════════════════════════════════════════════════════════
+#  MAIN CARD GENERATOR
+# ════════════════════════════════════════════════════════════════════════
+ 
+def rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+ 
+ 
+# Palette
+IMG_NAVY      = rgb("1A3A5C")
+IMG_BLUE      = rgb("2E6DA4")
+IMG_LIGHT_BLU = rgb("EAF0F8")
+IMG_BG        = rgb("FFFFFF")
+IMG_GRAY      = rgb("F2F2F2")
+IMG_DKGRAY    = rgb("4A4A4A")
+IMG_MDGRAY    = rgb("787878")
+IMG_BLACK     = rgb("1A1A1A")
+IMG_GREEN     = rgb("2D6A4F")
+IMG_ORANGE    = rgb("C25B00")
+IMG_BORDER    = rgb("CCCCCC")
+IMG_PILL_BG   = rgb("1A3A5C")
+IMG_ACCENT_G  = rgb("D4EDDA")
+IMG_ACCENT_Y  = rgb("FFF3CD")
+IMG_WHITE     = (255, 255, 255)
+IMG_HEADER_TX = (168, 196, 224)
+ 
+CARD_W, CARD_H = 1200, 780
+ 
+ 
+# ── font loader ─────────────────────────────────────────────────────────
+def load_font(size, bold=False):
+    candidates = (
+        ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+         "/System/Library/Fonts/Helvetica.ttc",
+         "C:/Windows/Fonts/arialbd.ttf"]
+        if bold else
+        ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+         "/System/Library/Fonts/Helvetica.ttc",
+         "C:/Windows/Fonts/arial.ttf"]
+    )
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+ 
+ 
+# ── drawing helpers ──────────────────────────────────────────────────────
+def rect(draw, x, y, w, h, fill, radius=0):
+    if radius:
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=fill)
+    else:
+        draw.rectangle([x, y, x + w, y + h], fill=fill)
+ 
+ 
+def text_w(draw, text, font):
+    return int(draw.textlength(text, font=font))
+ 
+ 
+def section_header(draw, x, y, w, label, font, bg=None):
+    """Draws a full-width section label bar; returns new y."""
+    bg = bg or IMG_BLUE
+    rect(draw, x, y, w, 34, bg)
+    draw.text((x + 14, y + 7), label, font=font, fill=C_WHITE)
+    return y + 34
+ 
+ 
+def wrap(draw, text, font, max_w):
+    words = text.split()
+    lines, line = [], []
+    for word in words:
+        probe = " ".join(line + [word])
+        if draw.textlength(probe, font=font) <= max_w:
+            line.append(word)
+        else:
+            if line:
+                lines.append(" ".join(line))
+            line = [word]
+    if line:
+        lines.append(" ".join(line))
+    return lines
+ 
+ 
+# ════════════════════════════════════════════════════════════════════════
+#  MAIN CARD GENERATOR
+# ════════════════════════════════════════════════════════════════════════
+ 
+def rgb(h):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+ 
+ 
+# Palette
+IMG_NAVY      = rgb("1A3A5C")
+IMG_BLUE      = rgb("2E6DA4")
+IMG_LIGHT_BLU = rgb("EAF0F8")
+IMG_BG        = rgb("FFFFFF")
+IMG_GRAY      = rgb("F2F2F2")
+IMG_DKGRAY    = rgb("4A4A4A")
+IMG_MDGRAY    = rgb("787878")
+IMG_BLACK     = rgb("1A1A1A")
+IMG_GREEN     = rgb("2D6A4F")
+IMG_ORANGE    = rgb("C25B00")
+IMG_BORDER    = rgb("CCCCCC")
+IMG_PILL_BG   = rgb("1A3A5C")
+IMG_ACCENT_G  = rgb("D4EDDA")
+IMG_ACCENT_Y  = rgb("FFF3CD")
+IMG_WHITE     = (255, 255, 255)
+IMG_HEADER_TX = (168, 196, 224)
+ 
+CARD_W, CARD_H = 1200, 780
+ 
+ 
+# ── font loader ─────────────────────────────────────────────────────────
+def load_font(size, bold=False):
+    candidates = (
+        ["/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+         "/System/Library/Fonts/Helvetica.ttc",
+         "C:/Windows/Fonts/arialbd.ttf"]
+        if bold else
+        ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+         "/System/Library/Fonts/Helvetica.ttc",
+         "C:/Windows/Fonts/arial.ttf"]
+    )
+    for path in candidates:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                pass
+    return ImageFont.load_default()
+ 
+ 
+# ── drawing helpers ──────────────────────────────────────────────────────
+def rect(draw, x, y, w, h, fill, radius=0):
+    if radius:
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=fill)
+    else:
+        draw.rectangle([x, y, x + w, y + h], fill=fill)
+ 
+ 
+def text_w(draw, text, font):
+    return int(draw.textlength(text, font=font))
+ 
+ 
+def section_header(draw, x, y, w, label, font, bg=None):
+    """Draws a full-width section label bar; returns new y."""
+    bg = bg or IMG_BLUE
+    rect(draw, x, y, w, 34, bg)
+    draw.text((x + 14, y + 7), label, font=font, fill=IMG_WHITE)
+    return y + 34
+ 
+ 
+def wrap(draw, text, font, max_w):
+    words = text.split()
+    lines, line = [], []
+    for word in words:
+        probe = " ".join(line + [word])
+        if draw.textlength(probe, font=font) <= max_w:
+            line.append(word)
+        else:
+            if line:
+                lines.append(" ".join(line))
+            line = [word]
+    if line:
+        lines.append(" ".join(line))
+    return lines
+ 
+ 
+# ════════════════════════════════════════════════════════════════════════
+#  MAIN CARD GENERATOR
+# ════════════════════════════════════════════════════════════════════════
+ 
 def generate_card(result, output_path):
-    img  = Image.new("RGB", (CARD_W, CARD_H), C_CARD_BG)
+ 
+    img  = Image.new("RGB", (CARD_W, CARD_H), IMG_BG)
     draw = ImageDraw.Draw(img)
+ 
+    # ── Fonts ──────────────────────────────────────────────────────────
+    f_tiny    = load_font(19)
+    f_small   = load_font(22)
+    f_body    = load_font(26)
+    f_medium  = load_font(30)
+    f_label   = load_font(19, bold=True)
+    f_bold_s  = load_font(24, bold=True)
+    f_bold_m  = load_font(30, bold=True)
+    f_bold_l  = load_font(38, bold=True)
+    f_type    = load_font(82, bold=True)
+    f_section = load_font(18, bold=True)
+ 
+    # ── HEADER BAR ─────────────────────────────────────────────────────
+    rect(draw, 0, 0, CARD_W, 64, IMG_NAVY)
+    draw.text((40, 13),  "CAREERMIND AI",             font=f_bold_s, fill=IMG_WHITE)
+    draw.text((40, 39),  "Personality Assessment Report", font=f_small, fill=IMG_HEADER_TX)
+    site = "careermind.app"
+    site_w = text_w(draw, site, f_small)
 
-    # ── Fonts ─────────────────────────────────────────────────────────────
-    f_tiny   = load_font(20)
-    f_small  = load_font(24)
-    f_body   = load_font(28)
-    f_medium = load_font(32)
-    f_large  = load_font(42)
-    f_xlarge = load_font(80, bold=True)
-    f_title  = load_font(44, bold=True)
-    f_bold_s = load_font(26, bold=True)
-    f_bold_m = load_font(32, bold=True)
-    f_bold_l = load_font(40, bold=True)
-    f_label  = load_font(20, bold=True)
-
-    # ── Header bar ────────────────────────────────────────────────────────
-    draw_rect(draw, 0, 0, CARD_W, 70, C_CARD_HEADER)
-    draw.text((40, 16), "CAREERMIND AI", font=f_bold_s, fill=(255,255,255))
-    draw.text((40, 42), "Personality Assessment Report", font=f_small, fill=(168,196,224))
-    draw.text((CARD_W - 40, 36), "careermind.app",
-              font=f_small, fill=(168,196,224), anchor="rm")
-
-    # ── Identity block (left panel) ──────────────────────────────────────
-    draw_rect(draw, 0, 70, 400, CARD_H - 70 - 50, C_CARD_LIGHT)
-
-    p_type = result.get("personality_type","")
-    p_name = result.get("personality_name","")
-
-    # Big type code
-    draw.text((200, 130), p_type, font=f_xlarge, fill=C_CARD_NAVY, anchor="mm")
-
-    # Divider under type
-    draw.line([(40, 200), (360, 200)], fill=C_CARD_BORDER, width=1)
-
-    # Name
-    draw.text((200, 230), p_name, font=f_bold_l, fill=C_CARD_BLACK, anchor="mm")
-    draw.text((200, 274), "MBTI Personality Type", font=f_small,
-              fill=C_CARD_MDGRAY, anchor="mm")
-
-    # Divider
-    draw.line([(40, 300), (360, 300)], fill=C_CARD_BORDER, width=1)
-
-    # Top traits (stacked pills)
-    draw.text((200, 330), "TOP STRENGTHS", font=f_label, fill=C_CARD_MDGRAY, anchor="mm")
+    draw.text(
+        (CARD_W - 40 - site_w, 32),
+        site,
+        font=f_small,
+        fill=IMG_HEADER_TX
+    )
+    
+    BODY_Y = 64          # content starts here
+    FOOTER_H = 46
+    BODY_H = CARD_H - BODY_Y - FOOTER_H
+ 
+    # ── LEFT PANEL  (width = 340) ──────────────────────────────────────
+    LP_W = 340
+    rect(draw, 0, BODY_Y, LP_W, BODY_H, IMG_LIGHT_BLU)
+ 
+    # Personality type code
+    p_type = result.get("personality_type", "")
+    p_name = result.get("personality_name", "")
+ 
+    ty_w = text_w(draw, p_type, f_type)
+    draw.text(((LP_W - ty_w) // 2, BODY_Y + 48), p_type, font=f_type, fill=IMG_NAVY)
+ 
+    # Horizontal rule
+    rule_y = BODY_Y + 152
+    draw.line([(30, rule_y), (LP_W - 30, rule_y)], fill=IMG_BORDER, width=1)
+ 
+    # Personality name + label
+    nm_w = text_w(draw, p_name, f_bold_l)
+    draw.text(((LP_W - nm_w) // 2, rule_y + 12), p_name, font=f_bold_l, fill=IMG_BLACK)
+ 
+    lbl = "MBTI Personality Type"
+    lbl_w = text_w(draw, lbl, f_small)
+    draw.text(((LP_W - lbl_w) // 2, rule_y + 56), lbl, font=f_small, fill=IMG_MDGRAY)
+ 
+    # Rule 2
+    rule2_y = rule_y + 90
+    draw.line([(30, rule2_y), (LP_W - 30, rule2_y)], fill=IMG_BORDER, width=1)
+ 
+    # "TOP STRENGTHS" label
+    ts_lbl = "TOP STRENGTHS"
+    ts_lbl_w = text_w(draw, ts_lbl, f_label)
+    draw.text(((LP_W - ts_lbl_w) // 2, rule2_y + 12), ts_lbl, font=f_label, fill=IMG_MDGRAY)
+ 
+    # Trait pills – centred, with consistent spacing
     traits = result.get("top_traits", [])[:5]
-    ty = 360
+    pill_y = rule2_y + 44
+    PILL_H  = 36
+    PILL_PAD_X = 20
+    PILL_GAP = 14
+ 
     for trait in traits:
-        tw = int(draw.textlength(trait, font=f_bold_s)) + 30
-        tx = 200 - tw // 2
-        draw_rect(draw, tx, ty, tw, 36, C_CARD_HEADER, radius=4)
-        draw.text((200, ty + 18), trait, font=f_bold_s, fill=(255,255,255), anchor="mm")
-        ty += 46
-
-    # ── Main content (right panel) ────────────────────────────────────────
-    RX = 420  # right panel x start
-    RW = CARD_W - RX - 40  # right panel width
-
-    # Description
-    desc = result.get("description","")
-    desc_font = f_body
-    desc_lines = wrap_text(desc, desc_font, RW, draw)[:3]
-    dy = 90
+        tw = text_w(draw, trait, f_bold_s) + PILL_PAD_X * 2
+        pill_x = (LP_W - tw) // 2
+        rect(draw, pill_x, pill_y, tw, PILL_H, IMG_PILL_BG, radius=5)
+        draw.text((LP_W // 2, pill_y + PILL_H // 2), trait,
+                  font=f_bold_s, fill=IMG_WHITE, anchor="mm")
+        pill_y += PILL_H + PILL_GAP
+ 
+    # ── RIGHT PANEL  ──────────────────────────────────────────────────
+    RP_X  = LP_W + 18
+    RP_W  = CARD_W - RP_X - 28
+    ry    = BODY_Y + 18          # running y inside right panel
+ 
+    # Description (max 3 lines)
+    desc_lines = wrap(draw, result.get("description", ""), f_body, RP_W)[:3]
     for line in desc_lines:
-        draw.text((RX, dy), line, font=desc_font, fill=C_CARD_DKGRAY)
-        dy += 38
-    dy += 10
-
-    # ── Career matches section ────────────────────────────────────────────
-    draw_rect(draw, RX, dy, RW, 36, C_CARD_BLUE)
-    draw.text((RX + 14, dy + 8), "TOP CAREER MATCHES",
-              font=f_label, fill=(255,255,255))
-    dy += 44
-
-    careers = result.get("top_careers",[])[:3]
+        draw.text((RP_X, ry), line, font=f_body, fill=IMG_DKGRAY)
+        ry += 34
+    ry += 10
+ 
+    # ── Career Matches ────────────────────────────────────────────────
+    ry = section_header(draw, RP_X, ry, RP_W, "TOP CAREER MATCHES", f_section, IMG_BLUE)
+    ry += 4
+ 
+    careers = result.get("top_careers", [])[:3]
+    ROW_H = 44
     for i, c in enumerate(careers):
-        title  = c.get("title","")
-        salary = c.get("salary","").replace("₹","").replace("Rs.","").strip()
-        bg_col = C_CARD_GRAY if i % 2 == 0 else C_CARD_BG
-        draw_rect(draw, RX, dy, RW, 46, bg_col)
-        num_w  = int(draw.textlength(f"{i+1}.", font=f_bold_s)) + 8
-        draw.text((RX + 12, dy + 13), f"{i+1}.", font=f_bold_s, fill=C_CARD_NAVY)
-        draw.text((RX + 12 + num_w, dy + 13), title, font=f_bold_m, fill=C_CARD_BLACK)
-        draw.text((RX + RW - 10, dy + 13), salary,
-                  font=f_bold_s, fill=C_CARD_GREEN, anchor="ra")
-        dy += 48
-    dy += 14
-
-    # ── Famous people section ─────────────────────────────────────────────
-    draw_rect(draw, RX, dy, RW, 36, C_CARD_NAVY)
-    draw.text((RX + 14, dy + 8), "FAMOUS PEOPLE WITH YOUR PERSONALITY",
-              font=f_label, fill=(255,255,255))
-    dy += 44
-
-    famous = result.get("famous_people",[])
-    famous_text = "   •   ".join(famous)
-    draw.text((RX, dy), famous_text, font=f_bold_m, fill=C_CARD_NAVY)
-    dy += 46
-
-    # ── Skill summary ─────────────────────────────────────────────────────
-    half = (RW - 16) // 2
-    draw_rect(draw, RX,          dy, half, 34, rgb("D4EDDA"))
-    draw_rect(draw, RX+half+16,  dy, half, 34, rgb("FFF3CD"))
-    draw.text((RX + half//2, dy + 17), "SKILLS YOU HAVE",
-              font=f_label, fill=C_CARD_GREEN, anchor="mm")
-    draw.text((RX + half + 16 + half//2, dy + 17), "SKILLS TO LEARN",
-              font=f_label, fill=rgb("C25B00"), anchor="mm")
-    dy += 38
-
-    have  = result.get("skills_you_have",[])[:3]
-    learn = result.get("skills_to_learn",[])[:3]
-    skill_rows = max(len(have), len(learn))
-    for j in range(skill_rows):
-        bg_s = C_CARD_BG if j % 2 == 0 else C_CARD_GRAY
-        draw_rect(draw, RX,         dy, half, 34, bg_s)
-        draw_rect(draw, RX+half+16, dy, half, 34, bg_s)
+        title  = c.get("title", "")
+        salary = c.get("salary", "").replace("₹", "").replace("Rs.", "").strip()
+        bg_col = IMG_GRAY if i % 2 == 0 else IMG_BG
+        rect(draw, RP_X, ry, RP_W, ROW_H, bg_col)
+        # number
+        num = f"{i + 1}."
+        draw.text((RP_X + 10, ry + 12), num,    font=f_bold_s, fill=IMG_NAVY)
+        # title
+        draw.text((RP_X + 42, ry + 12), title,  font=f_bold_m, fill=IMG_BLACK)
+        # salary right-aligned
+        salary_w = text_w(draw, salary, f_bold_s)
+        draw.text(
+            (RP_X + RP_W - 10 - salary_w, ry + 12),
+            salary,
+            font=f_bold_s,
+            fill=IMG_GREEN
+        )
+        # bottom border
+        draw.line([(RP_X, ry + ROW_H - 1), (RP_X + RP_W, ry + ROW_H - 1)],
+                  fill=IMG_BORDER, width=1)
+        ry += ROW_H
+    ry += 12
+ 
+    # ── Famous People ─────────────────────────────────────────────────
+    ry = section_header(draw, RP_X, ry, RP_W, "FAMOUS PEOPLE WITH YOUR PERSONALITY", f_section, IMG_NAVY)
+    ry += 8
+ 
+    famous = result.get("famous_people", [])
+    fp_text = "   •   ".join(famous)
+    # auto-shrink if too wide
+    fp_font = f_bold_m
+    while text_w(draw, fp_text, fp_font) > RP_W - 10 and fp_font.size > 18:
+        fp_font = load_font(fp_font.size - 2, bold=True)
+    draw.text((RP_X, ry), fp_text, font=fp_font, fill=IMG_NAVY)
+    ry += fp_font.size + 14
+ 
+    # ── Skill Gap ─────────────────────────────────────────────────────
+    COL_GAP = 12
+    COL_W   = (RP_W - COL_GAP) // 2
+ 
+    # Header row
+    rect(draw, RP_X,              ry, COL_W, 30, IMG_ACCENT_G)
+    rect(draw, RP_X + COL_W + COL_GAP, ry, COL_W, 30, IMG_ACCENT_Y)
+ 
+    h_lbl1 = "SKILLS YOU HAVE"
+    h_lbl2 = "SKILLS TO LEARN"
+    lbl1_w = text_w(draw, h_lbl1, f_label)
+    lbl2_w = text_w(draw, h_lbl2, f_label)
+    draw.text((RP_X + (COL_W - lbl1_w) // 2, ry + 6),
+              h_lbl1, font=f_label, fill=IMG_GREEN)
+    draw.text((RP_X + COL_W + COL_GAP + (COL_W - lbl2_w) // 2, ry + 6),
+              h_lbl2, font=f_label, fill=IMG_ORANGE)
+    ry += 30
+ 
+    have  = result.get("skills_you_have",  [])[:4]
+    learn = result.get("skills_to_learn",  [])[:4]
+    rows  = max(len(have), len(learn))
+    SKILL_H = 32
+    for j in range(rows):
+        bg_s = IMG_BG if j % 2 == 0 else IMG_GRAY
+        rect(draw, RP_X,                    ry, COL_W, SKILL_H, bg_s)
+        rect(draw, RP_X + COL_W + COL_GAP, ry, COL_W, SKILL_H, bg_s)
         if j < len(have):
-            draw.text((RX+10, dy+9), f"• {have[j]}", font=f_small, fill=C_CARD_DKGRAY)
+            draw.text((RP_X + 10, ry + 7),
+                      f"• {have[j]}", font=f_small, fill=IMG_DKGRAY)
         if j < len(learn):
-            draw.text((RX+half+26, dy+9), f"• {learn[j]}", font=f_small, fill=C_CARD_DKGRAY)
-        dy += 34
+            draw.text((RP_X + COL_W + COL_GAP + 10, ry + 7),
+                      f"• {learn[j]}", font=f_small, fill=IMG_DKGRAY)
+        draw.line([(RP_X, ry + SKILL_H - 1),
+                   (RP_X + RP_W, ry + SKILL_H - 1)], fill=IMG_BORDER, width=1)
+        ry += SKILL_H
+ 
+    # ── FOOTER BAR ────────────────────────────────────────────────────
+    footer_y = CARD_H - FOOTER_H
+    rect(draw, 0, footer_y, CARD_W, FOOTER_H, IMG_NAVY)
+    footer_txt = "Generated by CareerMind AI   |   careermind.app   |   Take your free personality test"
+    draw.text((40, footer_y + 14), footer_txt, font=f_small, fill=IMG_HEADER_TX)
+ 
+    try:
+        # Create folder automatically
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-    # ── Footer bar ────────────────────────────────────────────────────────
-    draw_rect(draw, 0, CARD_H - 50, CARD_W, 50, C_CARD_HEADER)
-    draw.text((40, CARD_H - 50 + 15),
-              "Generated by CareerMind AI   |   careermind.app   |   Take your free personality test",
-              font=f_small, fill=(168,196,224))
+        img.save(output_path, "PNG")
+        print("PNG SAVED SUCCESSFULLY")
+        print("PATH:", output_path)
 
-    img.save(output_path, "PNG", quality=95)
-
+    except Exception as e:
+        print("PNG ERROR:")
+        print(e)
 
 # ═════════════════════════════════════════════════════════════════════════
 #  ENTRY POINT
