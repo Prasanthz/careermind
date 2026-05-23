@@ -22,7 +22,7 @@ export default function Quiz({ guestMode = false }){
   ]
 
   useEffect(() => {
-    fetch('http://localhost:5000/api/quiz/questions')
+    fetch('${import.meta.env.VITE_API_URL}/api/quiz/questions')
       .then(res => res.json())
       .then(data => {
         setQuestions(data.questions)
@@ -44,7 +44,7 @@ export default function Quiz({ guestMode = false }){
     setSubmitting(true)
     try {
       const token = localStorage.getItem('token')
-      const res = await fetch('http://localhost:5000/api/quiz/submit', {
+      const res = await fetch('${import.meta.env.VITE_API_URL}/api/quiz/submit', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

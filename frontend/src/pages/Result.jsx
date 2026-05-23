@@ -25,7 +25,7 @@ export default function Result() {
   }
 
   const downloadPDF = async () => {
-    const res = await fetch('http://localhost:5000/api/result/download', {
+    const res = await fetch('${import.meta.env.VITE_API_URL}/api/result/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ result, type: 'pdf' })
@@ -40,7 +40,7 @@ export default function Result() {
   }
 
   const downloadCard = async () => {
-    const res = await fetch('http://localhost:5000/api/result/download', {
+    const res = await fetch('${import.meta.env.VITE_API_URL}/api/result/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ result, type: 'png' })
@@ -281,7 +281,7 @@ export default function Result() {
                 // Also clear from database if logged in
                 const token = localStorage.getItem('token')
                 if (token) {
-                  await fetch('http://localhost:5000/api/quiz/clear-result', {
+                  await fetch('${import.meta.env.VITE_API_URL}/api/quiz/clear-result', {
                     method: 'DELETE',
                     headers: { Authorization: `Bearer ${token}` }
                   })

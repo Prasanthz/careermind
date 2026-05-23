@@ -27,10 +27,10 @@ export default function Admin() {
     try {
       const headers = { Authorization: `Bearer ${token}` }
       const [aRes, uRes, tRes, qRes] = await Promise.all([
-        fetch('http://localhost:5000/api/admin/analytics', { headers }),
-        fetch('http://localhost:5000/api/admin/users', { headers }),
-        fetch('http://localhost:5000/api/admin/attempts', { headers }),
-        fetch('http://localhost:5000/api/admin/questions', { headers }),
+        fetch('${import.meta.env.VITE_API_URL}/api/admin/analytics', { headers }),
+        fetch('${import.meta.env.VITE_API_URL}/api/admin/users', { headers }),
+        fetch('${import.meta.env.VITE_API_URL}/api/admin/attempts', { headers }),
+        fetch('${import.meta.env.VITE_API_URL}/api/admin/questions', { headers }),
       ])
       const [aData, uData, tData, qData] = await Promise.all([
         aRes.json(), uRes.json(), tRes.json(), qRes.json()
@@ -56,7 +56,7 @@ export default function Admin() {
   const deleteUser = async (id) => {
     if (!confirm('Delete this user and all their data?')) return
     try {
-      await fetch(`http://localhost:5000/api/admin/users/${id}`, {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       })
@@ -72,7 +72,7 @@ export default function Admin() {
       return
     }
     try {
-      await fetch('http://localhost:5000/api/admin/questions', {
+      await fetch('${import.meta.env.VITE_API_URL}/api/admin/questions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(newQuestion)
@@ -87,7 +87,7 @@ export default function Admin() {
 
   const saveQuestion = async (id) => {
     try {
-      await fetch(`http://localhost:5000/api/admin/questions/${id}`, {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(editingQuestion)
@@ -103,7 +103,7 @@ export default function Admin() {
   const deleteQuestion = async (id) => {
     if (!confirm('Delete this question?')) return
     try {
-      await fetch(`http://localhost:5000/api/admin/questions/${id}`, {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions/${id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       })
