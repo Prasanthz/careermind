@@ -1,175 +1,143 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import AdminReviews from '../components/AdminReviews'
 
 export default function Admin() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState('analytics')
   const [analytics, setAnalytics] = useState(null)
   const [users, setUsers] = useState([])
-  const [attempts, setAttempts] = useState([])
   const [questions, setQuestions] = useState([])
+  const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(true)
-  const [editingQuestion, setEditingQuestion] = useState(null)
-  const [newQuestion, setNewQuestion] = useState({
-    question_text: '', category: '', option_a: '', option_b: '', display_order: ''
-  })
+  const [editingQ, setEditingQ] = useState(null)
+  const [newQ, setNewQ] = useState({ question_text: '', category: '', option_a: '', option_b: '', display_order: '' })
+  const [showAddQ, setShowAddQ] = useState(false)
+  const [msg, setMsg] = useState('')
 
   const token = localStorage.getItem('token')
+  const authHeaders = { Authorization: `Bearer ${token}` }
+
+  const fetchAll = async () => {
+    setLoading(true)
+    try {
+      const [aRes, uRes, qRes, rRes] = await Promise.all([
+        fetch(`${import.meta.env.VITE_API_URL}/api/admin/analytics`, { headers: authHeaders }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/admin/users`, { headers: authHeaders }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions`, { headers: authHeaders }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/reviews/all`, { headers: authHeaders }),
+      ])
+      const [a, u, q, r] = await Promise.all([aRes.json(), uRes.json(), qRes.json(), rRes.json()])
+      setAnalytics(a)
+      setUsers(u.users || [])
+      setQuestions(q.questions || [])
+      setReviews(r.reviews || [])
+    } catch (e) {
+      console.error(e)
+    }
+    setLoading(false)
+  }
 
   useEffect(() => {
     if (!token) { navigate('/login'); return }
     fetchAll()
   }, [])
 
-  const fetchAll = async () => {
-    setLoading(true)
-    try {
-      const headers = { Authorization: `Bearer ${token}` }
-      const [aRes, uRes, tRes, qRes] = await Promise.all([
-        fetch(`${import.meta.env.VITE_API_URL}/api/admin/analytics`, { headers }),
-        fetch(`${import.meta.env.VITE_API_URL}/api/admin/users`, { headers }),
-        fetch(`${import.meta.env.VITE_API_URL}/api/admin/attempts`, { headers }),
-        fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions`, { headers }),
-      ])
-      const [aData, uData, tData, qData] = await Promise.all([
-        aRes.json(), uRes.json(), tRes.json(), qRes.json()
-      ])
-      setAnalytics(aData)
-      setUsers(uData.users || [])
-      setAttempts(tData.attempts || [])
-      setQuestions(qData.questions || [])
-    } catch (err) {
-      console.error('Failed to load data', err)
-    }
-    setLoading(false)
-  }
-
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    localStorage.removeItem('loginExpiry')
-    localStorage.removeItem('result')
-    navigate('/login', { replace: true })
-  }
+  const showMsg = (m) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
 
   const deleteUser = async (id) => {
     if (!confirm('Delete this user and all their data?')) return
-    try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      setUsers(users.filter(u => u.id !== id))
-    } catch {
-      alert('Delete failed')
-    }
+    await fetch(`${import.meta.env.VITE_API_URL}/api/admin/users/${id}`, { method: 'DELETE', headers: authHeaders })
+    setUsers(users.filter(u => u.id !== id))
+    showMsg('✅ User deleted')
   }
 
-  const addQuestion = async () => {
-    if (!newQuestion.question_text || !newQuestion.category || !newQuestion.option_a || !newQuestion.option_b) {
-      alert('Please fill all fields')
-      return
-    }
-    try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(newQuestion)
-      })
-      setNewQuestion({ question_text: '', category: '', option_a: '', option_b: '', display_order: '' })
-      fetchAll()
-      alert('Question added successfully!')
-    } catch {
-      alert('Failed to add question')
-    }
-  }
-
-  const saveQuestion = async (id) => {
-    try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(editingQuestion)
-      })
-      setEditingQuestion(null)
-      fetchAll()
-      alert('Question updated successfully!')
-    } catch {
-      alert('Failed to update question')
-    }
+  const saveQuestion = async () => {
+    const url = editingQ
+      ? `${import.meta.env.VITE_API_URL}/api/admin/questions/${editingQ.id}`
+      : `${import.meta.env.VITE_API_URL}/api/admin/questions`
+    const method = editingQ ? 'PUT' : 'POST'
+    await fetch(url, {
+      method,
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingQ || newQ)
+    })
+    showMsg(editingQ ? '✅ Question updated' : '✅ Question added')
+    setEditingQ(null)
+    setShowAddQ(false)
+    setNewQ({ question_text: '', category: '', option_a: '', option_b: '', display_order: '' })
+    fetchAll()
   }
 
   const deleteQuestion = async (id) => {
     if (!confirm('Delete this question?')) return
-    try {
-      await fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions/${id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      fetchAll()
-    } catch {
-      alert('Failed to delete question')
-    }
+    await fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions/${id}`, { method: 'DELETE', headers: authHeaders })
+    showMsg('✅ Question deleted')
+    fetchAll()
   }
 
-  if (loading) return (
-    <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
-      <div className="text-center">
-        <div className="text-5xl mb-4 animate-pulse">⚙️</div>
-        <p className="text-purple-400 font-semibold">Loading admin panel...</p>
-      </div>
-    </div>
-  )
+  // ✅ FIXED: uses PUT /api/reviews/:id/feature (matches backend)
+  const featureReview = async (id, featured) => {
+    await fetch(`${import.meta.env.VITE_API_URL}/api/reviews/${id}/feature`, {
+      method: 'PUT',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ featured })
+    })
+    showMsg(featured ? '✅ Review featured on landing page!' : '✅ Review removed from landing page')
+    fetchAll()
+  }
+
+  const stageLabels = {
+    school: 'School Student',
+    college: 'College Student',
+    jobseeker: 'Job Seeker',
+    switcher: 'Career Switcher',
+    professional: 'Working Professional',
+  }
+
+  const tabs = [
+    { key: 'analytics', label: '📊 Analytics' },
+    { key: 'users', label: '👥 Users' },
+    { key: 'questions', label: '❓ Questions' },
+    { key: 'reviews', label: '⭐ Reviews' },
+  ]
+
+  const featuredCount = reviews.filter(r => r.featured).length
 
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white pb-20">
-
       {/* Header */}
-      <div className="bg-[#16213E] border-b border-purple-900/30 px-4 py-4">
-        <div className="max-w-6xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🧠</span>
-            <div>
-              <span className="text-lg font-bold text-purple-400">CareerMind AI</span>
-              <span className="ml-2 text-xs bg-purple-600/30 text-purple-300 px-2 py-0.5 rounded-full">Admin</span>
-            </div>
+      <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-5">
+        <div className="max-w-5xl mx-auto flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold text-purple-400">🛡️ Admin Dashboard</h1>
+            <p className="text-gray-400 text-xs mt-0.5">CareerMind AI — Management Panel</p>
           </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => navigate('/result')}
-              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-purple-500 transition-all"
-            >
-              ← Back
-            </button>
-            <button
-              onClick={handleLogout}
-              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
-            >
-              🚪 Logout
-            </button>
-          </div>
+          <button
+            onClick={() => navigate('/')}
+            className="text-gray-400 text-sm border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-purple-500 transition-all"
+          >
+            ← Home
+          </button>
         </div>
       </div>
 
-      {/* Tab Navigation */}
-      <div className="max-w-6xl mx-auto px-4 mt-4">
-        <div className="flex gap-2 flex-wrap">
-          {[
-            { key: 'analytics', label: '📊 Analytics' },
-            { key: 'users', label: '👥 Users' },
-            { key: 'attempts', label: '📝 Attempts' },
-            { key: 'questions', label: '❓ Questions' },
-            { key: 'reviews', label: '⭐ Reviews' },
-          ].map(tab => (
+      {/* Toast */}
+      {msg && (
+        <div className="fixed top-4 right-4 z-50 bg-purple-600 text-white px-5 py-3 rounded-xl shadow-lg font-semibold">
+          {msg}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="max-w-5xl mx-auto px-4 mt-4">
+        <div className="flex bg-[#16213E] rounded-xl p-1 border border-purple-900/30">
+          {tabs.map(tab => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === tab.key
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-[#16213E] text-gray-400 border border-purple-900/30 hover:border-purple-500'
+              className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                activeTab === tab.key ? 'bg-purple-600 text-white' : 'text-gray-400 hover:text-white'
               }`}
             >
               {tab.label}
@@ -178,311 +146,234 @@ export default function Admin() {
         </div>
       </div>
 
-      <div className="max-w-6xl mx-auto px-4 mt-4">
+      {loading ? (
+        <div className="flex items-center justify-center mt-20">
+          <div className="text-purple-400 text-lg animate-pulse">Loading...</div>
+        </div>
+      ) : (
+        <div className="max-w-5xl mx-auto px-4 mt-4 space-y-4">
 
-        {/* ANALYTICS TAB */}
-        {activeTab === 'analytics' && analytics && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              {[
-                { label: 'Total Users', value: analytics.totalUsers, icon: '👥' },
-                { label: 'Total Tests', value: analytics.totalTests, icon: '📝' },
-                { label: 'Top Type', value: analytics.popularTypes?.[0]?.type || '—', icon: '🧠' },
-                { label: 'Questions', value: questions.length, icon: '❓' },
-              ].map((stat, i) => (
-                <div key={i} className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 text-center">
-                  <div className="text-3xl mb-2">{stat.icon}</div>
-                  <div className="text-2xl font-bold text-purple-400">{stat.value}</div>
-                  <div className="text-gray-400 text-sm">{stat.label}</div>
-                </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
-                <h2 className="font-bold text-lg mb-4">🏆 Top Personality Types</h2>
-                <div className="space-y-3">
-                  {analytics.popularTypes?.map((t, i) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <span className="text-white font-medium">{t.type || 'Unknown'}</span>
-                      <span className="bg-purple-600/30 text-purple-300 px-3 py-1 rounded-full text-sm">{t.count} tests</span>
-                    </div>
-                  ))}
-                  {(!analytics.popularTypes || analytics.popularTypes.length === 0) && (
-                    <div className="text-gray-500 text-center py-4">No data yet</div>
-                  )}
-                </div>
-              </div>
-
-              <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
-                <h2 className="font-bold text-lg mb-4">📊 Stage Breakdown</h2>
-                <div className="space-y-3">
-                  {analytics.stageStats?.map((s, i) => (
-                    <div key={i} className="flex items-center justify-between">
-                      <span className="text-white capitalize">{s.stage || 'Unknown'}</span>
-                      <span className="bg-pink-600/30 text-pink-300 px-3 py-1 rounded-full text-sm">{s.count}</span>
-                    </div>
-                  ))}
-                  {(!analytics.stageStats || analytics.stageStats.length === 0) && (
-                    <div className="text-gray-500 text-center py-4">No data yet</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* USERS TAB */}
-        {activeTab === 'users' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="bg-[#16213E] rounded-2xl border border-purple-900/30 overflow-hidden">
-              <div className="p-4 border-b border-purple-900/30 flex justify-between items-center">
-                <h2 className="font-bold text-lg">👥 All Users</h2>
-                <span className="text-gray-400 text-sm">{users.length} total</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-purple-900/30">
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Name</th>
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Email</th>
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Age</th>
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Stage</th>
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Joined</th>
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map(u => (
-                      <tr key={u.id} className="border-b border-purple-900/20 hover:bg-purple-900/10 transition-all">
-                        <td className="px-4 py-3 text-white font-medium">{u.name}</td>
-                        <td className="px-4 py-3 text-gray-400 text-sm">{u.email}</td>
-                        <td className="px-4 py-3 text-gray-400 text-sm">{u.age || '—'}</td>
-                        <td className="px-4 py-3 text-gray-400 text-sm capitalize">{u.stage || '—'}</td>
-                        <td className="px-4 py-3 text-gray-400 text-sm">
-                          {new Date(u.created_at).toLocaleDateString('en-IN')}
-                        </td>
-                        <td className="px-4 py-3">
-                          <button
-                            onClick={() => deleteUser(u.id)}
-                            className="text-red-400 text-sm border border-red-900/50 px-3 py-1 rounded-lg hover:border-red-500 transition-all"
-                          >
-                            🗑️ Delete
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {users.length === 0 && (
-                  <div className="text-center text-gray-500 py-10">No users yet</div>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* TEST ATTEMPTS TAB */}
-        {activeTab === 'attempts' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="bg-[#16213E] rounded-2xl border border-purple-900/30 overflow-hidden">
-              <div className="p-4 border-b border-purple-900/30 flex justify-between items-center">
-                <h2 className="font-bold text-lg">📝 Test Attempts</h2>
-                <span className="text-gray-400 text-sm">{attempts.length} total</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-purple-900/30">
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Name</th>
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Email</th>
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Stage</th>
-                      <th className="text-left px-4 py-3 text-gray-400 text-sm">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {attempts.map(a => (
-                      <tr key={a.id} className="border-b border-purple-900/20 hover:bg-purple-900/10 transition-all">
-                        <td className="px-4 py-3 text-white font-medium">{a.name}</td>
-                        <td className="px-4 py-3 text-gray-400 text-sm">{a.email}</td>
-                        <td className="px-4 py-3 text-gray-400 text-sm capitalize">{a.stage || '—'}</td>
-                        <td className="px-4 py-3 text-gray-400 text-sm">
-                          {new Date(a.taken_at).toLocaleDateString('en-IN')}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {attempts.length === 0 && (
-                  <div className="text-center text-gray-500 py-10">No attempts yet</div>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {/* QUESTIONS TAB */}
-        {activeTab === 'questions' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-
-            {/* Add new question */}
-            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mb-4">
-              <h2 className="font-bold text-lg mb-4">➕ Add New Question</h2>
-              <div className="space-y-3">
-                <input
-                  type="text"
-                  placeholder="Question text"
-                  value={newQuestion.question_text}
-                  onChange={e => setNewQuestion({ ...newQuestion, question_text: e.target.value })}
-                  className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500"
-                />
-                <div className="grid grid-cols-2 gap-3">
-                  <input
-                    type="text"
-                    placeholder="Category (e.g. EI)"
-                    value={newQuestion.category}
-                    onChange={e => setNewQuestion({ ...newQuestion, category: e.target.value })}
-                    className="bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500"
-                  />
-                  <input
-                    type="number"
-                    placeholder="Display order"
-                    value={newQuestion.display_order}
-                    onChange={e => setNewQuestion({ ...newQuestion, display_order: e.target.value })}
-                    className="bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500"
-                  />
-                </div>
-                <input
-                  type="text"
-                  placeholder="Option A"
-                  value={newQuestion.option_a}
-                  onChange={e => setNewQuestion({ ...newQuestion, option_a: e.target.value })}
-                  className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500"
-                />
-                <input
-                  type="text"
-                  placeholder="Option B"
-                  value={newQuestion.option_b}
-                  onChange={e => setNewQuestion({ ...newQuestion, option_b: e.target.value })}
-                  className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500"
-                />
-                <button
-                  onClick={addQuestion}
-                  className="w-full py-3 bg-purple-600 rounded-xl font-semibold hover:bg-purple-700 transition-all"
-                >
-                  ➕ Add Question
-                </button>
-              </div>
-            </div>
-
-            {/* Questions list */}
-            <div className="bg-[#16213E] rounded-2xl border border-purple-900/30 overflow-hidden">
-              <div className="p-4 border-b border-purple-900/30 flex justify-between items-center">
-                <h2 className="font-bold text-lg">❓ All Questions</h2>
-                <span className="text-gray-400 text-sm">{questions.length} total</span>
-              </div>
-              <div className="divide-y divide-purple-900/20">
-                {questions.map((q, i) => (
-                  <div key={q.id} className="p-4">
-                    {editingQuestion?.id === q.id ? (
-                      <div className="space-y-3">
-                        <input
-                          type="text"
-                          value={editingQuestion.question_text}
-                          onChange={e => setEditingQuestion({ ...editingQuestion, question_text: e.target.value })}
-                          className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500"
-                        />
-                        <div className="grid grid-cols-2 gap-3">
-                          <input
-                            type="text"
-                            value={editingQuestion.category}
-                            onChange={e => setEditingQuestion({ ...editingQuestion, category: e.target.value })}
-                            className="bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500"
-                          />
-                          <input
-                            type="number"
-                            value={editingQuestion.display_order}
-                            onChange={e => setEditingQuestion({ ...editingQuestion, display_order: e.target.value })}
-                            className="bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500"
-                          />
-                        </div>
-                        <input
-                          type="text"
-                          value={editingQuestion.option_a}
-                          onChange={e => setEditingQuestion({ ...editingQuestion, option_a: e.target.value })}
-                          className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500"
-                        />
-                        <input
-                          type="text"
-                          value={editingQuestion.option_b}
-                          onChange={e => setEditingQuestion({ ...editingQuestion, option_b: e.target.value })}
-                          className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500"
-                        />
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => saveQuestion(q.id)}
-                            className="flex-1 py-2 bg-green-600 rounded-xl font-semibold hover:bg-green-700 transition-all"
-                          >
-                            💾 Save
-                          </button>
-                          <button
-                            onClick={() => setEditingQuestion(null)}
-                            className="flex-1 py-2 bg-gray-600 rounded-xl font-semibold hover:bg-gray-700 transition-all"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div>
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="text-gray-500 text-xs">#{i + 1}</span>
-                              <span className="bg-purple-600/20 text-purple-400 text-xs px-2 py-0.5 rounded-full">{q.category}</span>
-                              <span className="text-gray-600 text-xs">order: {q.display_order}</span>
-                            </div>
-                            <p className="text-white font-medium">{q.question_text}</p>
-                            <div className="mt-2 space-y-1">
-                              <div className="text-gray-400 text-sm">A: {q.option_a}</div>
-                              <div className="text-gray-400 text-sm">B: {q.option_b}</div>
-                            </div>
-                          </div>
-                          <div className="flex gap-2 shrink-0">
-                            <button
-                              onClick={() => setEditingQuestion(q)}
-                              className="text-purple-400 text-sm border border-purple-900/50 px-3 py-1 rounded-lg hover:border-purple-500 transition-all"
-                            >
-                              ✏️ Edit
-                            </button>
-                            <button
-                              onClick={() => deleteQuestion(q.id)}
-                              className="text-red-400 text-sm border border-red-900/50 px-3 py-1 rounded-lg hover:border-red-500 transition-all"
-                            >
-                              🗑️ Delete
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
+          {/* ANALYTICS */}
+          {activeTab === 'analytics' && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+                {[
+                  { label: 'Total Users', val: analytics?.totalUsers || 0, icon: '👥' },
+                  { label: 'Total Tests', val: analytics?.totalTests || 0, icon: '🧠' },
+                  { label: 'Questions', val: questions.length, icon: '❓' },
+                  { label: 'Reviews', val: reviews.length, icon: '⭐' },
+                ].map((stat, i) => (
+                  <div key={i} className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 text-center">
+                    <div className="text-3xl mb-1">{stat.icon}</div>
+                    <div className="text-2xl font-extrabold text-purple-400">{stat.val}</div>
+                    <div className="text-gray-400 text-xs mt-1">{stat.label}</div>
                   </div>
                 ))}
-                {questions.length === 0 && (
-                  <div className="text-center text-gray-500 py-10">No questions yet</div>
+              </div>
+
+              {analytics?.popularTypes?.length > 0 && (
+                <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+                  <h2 className="font-bold text-lg mb-4">🏆 Top Personality Types</h2>
+                  <div className="space-y-3">
+                    {analytics.popularTypes.map((t, i) => (
+                      <div key={i} className="flex items-center gap-3">
+                        <span className="text-purple-400 font-bold w-16">{t.type}</span>
+                        <div className="flex-1 bg-[#1A1A2E] rounded-full h-2">
+                          <div
+                            className="bg-gradient-to-r from-purple-600 to-pink-600 h-2 rounded-full"
+                            style={{ width: `${Math.min(100, (t.count / (analytics.totalTests || 1)) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-gray-400 text-sm w-8">{t.count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {/* USERS */}
+          {activeTab === 'users' && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+                <h2 className="font-bold text-lg mb-4">👥 All Users ({users.length})</h2>
+                <div className="space-y-3">
+                  {users.map(u => (
+                    <div key={u.id} className="bg-[#1A1A2E] rounded-xl p-4 border border-purple-900/20 flex justify-between items-center">
+                      <div>
+                        <div className="font-semibold text-white">{u.name}</div>
+                        <div className="text-gray-400 text-xs">{u.email}</div>
+                        <div className="text-gray-500 text-xs mt-0.5">{stageLabels[u.stage] || u.stage} · Age {u.age}</div>
+                      </div>
+                      <button
+                        onClick={() => deleteUser(u.id)}
+                        className="text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-xs hover:bg-red-500/20 transition-all"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* QUESTIONS */}
+          {activeTab === 'questions' && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="font-bold text-lg">❓ Questions ({questions.length})</h2>
+                  <button
+                    onClick={() => setShowAddQ(!showAddQ)}
+                    className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm font-semibold transition-all"
+                  >
+                    + Add Question
+                  </button>
+                </div>
+
+                {showAddQ && (
+                  <div className="bg-[#1A1A2E] rounded-xl p-4 border border-purple-500/30 mb-4 space-y-3">
+                    <h3 className="font-semibold text-purple-400">New Question</h3>
+                    {['question_text', 'category', 'option_a', 'option_b', 'display_order'].map(field => (
+                      <input
+                        key={field}
+                        placeholder={field.replace(/_/g, ' ')}
+                        value={newQ[field]}
+                        onChange={e => setNewQ(n => ({ ...n, [field]: e.target.value }))}
+                        className="w-full bg-[#16213E] border border-purple-900/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-purple-500"
+                      />
+                    ))}
+                    <div className="flex gap-2">
+                      <button onClick={saveQuestion} className="bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-lg text-sm font-semibold flex-1">Save</button>
+                      <button onClick={() => setShowAddQ(false)} className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm flex-1">Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {editingQ && (
+                  <div className="bg-[#1A1A2E] rounded-xl p-4 border border-yellow-500/30 mb-4 space-y-3">
+                    <h3 className="font-semibold text-yellow-400">Edit Question #{editingQ.id}</h3>
+                    {['question_text', 'category', 'option_a', 'option_b', 'display_order'].map(field => (
+                      <input
+                        key={field}
+                        placeholder={field.replace(/_/g, ' ')}
+                        value={editingQ[field] || ''}
+                        onChange={e => setEditingQ(q => ({ ...q, [field]: e.target.value }))}
+                        className="w-full bg-[#16213E] border border-yellow-900/50 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:border-yellow-500"
+                      />
+                    ))}
+                    <div className="flex gap-2">
+                      <button onClick={saveQuestion} className="bg-yellow-600 hover:bg-yellow-700 px-4 py-2 rounded-lg text-sm font-semibold flex-1">Update</button>
+                      <button onClick={() => setEditingQ(null)} className="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded-lg text-sm flex-1">Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  {questions.map((q, i) => (
+                    <div key={q.id} className="bg-[#1A1A2E] rounded-xl p-4 border border-purple-900/20">
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="flex-1">
+                          <div className="text-white text-sm font-medium">{i + 1}. {q.question_text}</div>
+                          <div className="text-gray-500 text-xs mt-1">Category: {q.category} · Order: {q.display_order}</div>
+                          <div className="flex gap-3 mt-2 text-xs">
+                            <span className="text-green-400">A: {q.option_a}</span>
+                            <span className="text-blue-400">B: {q.option_b}</span>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button onClick={() => setEditingQ({ ...q })} className="text-yellow-400 border border-yellow-500/30 px-2 py-1 rounded-lg text-xs hover:bg-yellow-500/20 transition-all">Edit</button>
+                          <button onClick={() => deleteQuestion(q.id)} className="text-red-400 border border-red-500/30 px-2 py-1 rounded-lg text-xs hover:bg-red-500/20 transition-all">Delete</button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* REVIEWS */}
+          {activeTab === 'reviews' && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+              <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+                <h2 className="font-bold text-lg mb-1">⭐ User Reviews</h2>
+                <p className="text-gray-400 text-xs mb-5">
+                  Feature up to 4 reviews to show on the landing page. Featured: {featuredCount}/4
+                </p>
+
+                {reviews.length === 0 ? (
+                  <p className="text-gray-500 text-center py-8">No reviews yet. Users can submit from the Result page.</p>
+                ) : (
+                  <div className="space-y-4">
+                    {reviews.map(r => (
+                      <div
+                        key={r.id}
+                        className={`rounded-xl p-4 border transition-all ${
+                          r.featured
+                            ? 'bg-purple-600/20 border-purple-500/50'
+                            : 'bg-[#1A1A2E] border-purple-900/20'
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-3">
+                          <div className="flex-1">
+                            <div className="flex gap-0.5 mb-2">
+                              {[...Array(5)].map((_, s) => (
+                                <span key={s} className={s < r.rating ? 'text-yellow-400' : 'text-gray-700'}>★</span>
+                              ))}
+                              {r.featured && (
+                                <span className="ml-2 text-purple-400 text-xs font-bold">✨ Featured #{r.featured_order}</span>
+                              )}
+                            </div>
+                            <p className="text-gray-300 text-sm mb-3">"{r.message}"</p>
+                            <div className="flex items-center gap-2">
+                              {r.profile_pic ? (
+                                <img src={r.profile_pic} className="w-8 h-8 rounded-full object-cover border border-purple-600" alt={r.name} />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-xs font-bold">
+                                  {r.name?.[0]?.toUpperCase() || '?'}
+                                </div>
+                              )}
+                              <div>
+                                <div className="text-white text-sm font-semibold">{r.name}</div>
+                                <div className="text-gray-500 text-xs">{stageLabels[r.stage] || r.stage}</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* ✅ FIXED: single toggle button using PUT /:id/feature */}
+                          <div className="shrink-0">
+                            {r.featured ? (
+                              <button
+                                onClick={() => featureReview(r.id, false)}
+                                className="text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-xs hover:bg-red-500/20 transition-all whitespace-nowrap"
+                              >
+                                ✕ Unfeature
+                              </button>
+                            ) : featuredCount < 4 ? (
+                              <button
+                                onClick={() => featureReview(r.id, true)}
+                                className="text-purple-400 border border-purple-500/30 px-3 py-1.5 rounded-lg text-xs hover:bg-purple-500/20 transition-all whitespace-nowrap"
+                              >
+                                ✨ Feature
+                              </button>
+                            ) : (
+                              <span className="text-gray-600 text-xs">Max 4</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
-            </div>
-          </motion.div>
-        )}
+            </motion.div>
+          )}
 
-        {/* REVIEWS TAB */}
-        {activeTab === 'reviews' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <AdminReviews token={token} />
-          </motion.div>
-        )}
-
-      </div>
+        </div>
+      )}
     </div>
   )
 }
