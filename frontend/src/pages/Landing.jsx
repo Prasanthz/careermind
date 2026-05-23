@@ -13,6 +13,18 @@ export default function Landing() {
       .catch(() => setTestedCount(null))
   }, [])
 
+  const [questionCount, setQuestionCount] = useState(25)
+
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_URL}/api/stats`)
+      .then(r => r.json())
+      .then(data => {
+        setTestedCount(data.tested)
+        setQuestionCount(data.questionCount || 25)
+      })
+      .catch(() => setTestedCount(null))
+  }, [])
+
   const features = [
     { icon: '🧠', title: 'AI-Powered Analysis', desc: 'Advanced AI analyzes your personality with scientific accuracy' },
     { icon: '💼', title: 'Career Matching', desc: 'Get matched to careers that fit your unique personality type' },
@@ -23,7 +35,7 @@ export default function Landing() {
   ]
 
   const steps = [
-    { num: '01', title: 'Take the Quiz', desc: 'Answer 25 simple personality questions' },
+    { num: '01', title: 'Take the Quiz', desc: `Answer ${questionCount} simple personality questions` },
     { num: '02', title: 'AI Analyzes', desc: 'Our AI deeply analyzes your answers' },
     { num: '03', title: 'Get Results', desc: 'Receive your personality type and career matches' },
     { num: '04', title: 'Start Journey', desc: 'Follow your personalized learning roadmap' },
