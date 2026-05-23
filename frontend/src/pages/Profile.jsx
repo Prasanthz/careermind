@@ -23,6 +23,16 @@ const countryCodes = [
   { code: '+81', flag: '🇯🇵', name: 'Japan' },
 ]
 
+const calcAge = (dobStr) => {
+  if (!dobStr) return ''
+  const today = new Date()
+  const birth = new Date(dobStr)
+  let age = today.getFullYear() - birth.getFullYear()
+  const m = today.getMonth() - birth.getMonth()
+  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+  return age
+}
+
 export default function Profile() {
   const navigate = useNavigate()
   const fileRef = useRef(null)
@@ -103,9 +113,10 @@ export default function Profile() {
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
-          phone: fullPhone || null,
-          dob: dob || null,
-          profile_pic: profilePic || null
+        phone: fullPhone || null,
+        dob: dob || null,
+        profile_pic: profilePic || null,
+        age: calcAge(dob) || null
         })
       })
       const data = await res.json()
@@ -272,7 +283,10 @@ export default function Profile() {
               <input
                 type="date"
                 value={dob}
-                onChange={e => setDob(e.target.value)}
+                onChange={e => {
+                setDob(e.target.value)
+                setUserData(prev => ({ ...prev, age: calcAge(e.target.value) }))
+                }}
                 className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-purple-500 transition-all"
               />
             </div>
