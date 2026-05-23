@@ -11,8 +11,13 @@ export default function Journey() {
   const [activePhase, setActivePhase] = useState(0)
   const [todayDone, setTodayDone] = useState(false)
   const [activeTab, setActiveTab] = useState('today') // 'today' | 'phases' | 'badges'
+
+  // Reminder states
+  const [reminderEnabled, setReminderEnabled] = useState(false)
+  const [reminderTime, setReminderTime] = useState('08:00')
+  const [reminderSaved, setReminderSaved] = useState(false)
+
   const handleLogout = () => {
-    // Keep guestResult if any, clear everything else
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     localStorage.removeItem('loginExpiry')
@@ -34,11 +39,9 @@ export default function Journey() {
     const savedPoints = localStorage.getItem('points')
     if (savedPoints) setPoints(parseInt(savedPoints))
 
-    // ✅ Resume from last active phase
     const savedPhase = localStorage.getItem('activePhase')
     if (savedPhase) setActivePhase(parseInt(savedPhase))
 
-    // Streak logic
     const lastActive = localStorage.getItem('lastActive')
     const today = new Date().toDateString()
     const yesterday = new Date(Date.now() - 86400000).toDateString()
@@ -51,7 +54,33 @@ export default function Journey() {
     }
   }, [])
 
-  // Mark today as active
+  // Load reminder settings from backend
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    fetch(`${import.meta.env.VITE_API_URL}/api/reminder/get`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(data => {
+        setReminderEnabled(data.enabled)
+        setReminderTime(data.reminder_time || '08:00')
+      })
+      .catch(() => {})
+  }, [])
+
+  const saveReminder = async () => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    await fetch(`${import.meta.env.VITE_API_URL}/api/reminder/set`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ enabled: reminderEnabled, time: reminderTime })
+    })
+    setReminderSaved(true)
+    setTimeout(() => setReminderSaved(false), 2000)
+  }
+
   const markTodayActive = () => {
     const today = new Date().toDateString()
     const lastActive = localStorage.getItem('lastActive')
@@ -69,8 +98,6 @@ export default function Journey() {
     const updated = { ...completedTasks, [key]: !completedTasks[key] }
     setCompletedTasks(updated)
     localStorage.setItem('completedTasks', JSON.stringify(updated))
-
-    // ✅ Save current phase
     localStorage.setItem('activePhase', phaseIndex.toString())
 
     if (!completedTasks[key]) {
@@ -104,10 +131,8 @@ export default function Journey() {
     return Math.round((done / tasks.length) * 100)
   }
 
-  // Build today's schedule from roadmap
   const getTodaySchedule = () => {
     if (!result?.roadmap) return []
-    const totalDays = result.roadmap.reduce((sum, p) => sum + (p.tasks?.length || 0) * 3, 0)
     const startDate = localStorage.getItem('journeyStart') || new Date().toDateString()
     if (!localStorage.getItem('journeyStart')) {
       localStorage.setItem('journeyStart', startDate)
@@ -116,7 +141,6 @@ export default function Journey() {
     const dayOfWeek = new Date().toLocaleDateString('en-IN', { weekday: 'long' })
     const dateStr = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
 
-    // Pick tasks for today based on day number
     const allTasks = []
     result.roadmap.forEach((phase, pi) => {
       phase.tasks?.forEach((task, ti) => {
@@ -124,7 +148,6 @@ export default function Journey() {
       })
     })
 
-    // Show 2-3 tasks per day cycling
     const startIdx = (daysPassed * 2) % Math.max(allTasks.length, 1)
     const todayTasks = allTasks.slice(startIdx, startIdx + 2)
     if (todayTasks.length < 2 && allTasks.length > 0) {
@@ -245,8 +268,6 @@ export default function Journey() {
                   {todayDone ? '✅ Done Today!' : '⏳ Pending'}
                 </div>
               </div>
-
-              {/* Streak row */}
               <div className="flex gap-1 mt-4">
                 {[...Array(7)].map((_, i) => (
                   <div
@@ -262,7 +283,6 @@ export default function Journey() {
             <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mb-4">
               <h2 className="font-bold text-lg mb-1">📌 Today's Tasks</h2>
               <p className="text-gray-400 text-xs mb-4">Complete these to earn points and keep your streak!</p>
-
               <div className="space-y-3">
                 {schedule.todayTasks?.map((item, idx) => {
                   const key = `${item.phaseIndex}-${item.taskIndex}`
@@ -299,12 +319,12 @@ export default function Journey() {
               <h2 className="font-bold text-lg mb-4">🕐 Suggested Daily Schedule</h2>
               <div className="space-y-3">
                 {[
-                  { time: '6:00 AM', task: 'Morning review — read yesterday\'s notes', icon: '🌅' },
+                  { time: '6:00 AM', task: "Morning review — read yesterday's notes", icon: '🌅' },
                   { time: '7:00 AM', task: 'Watch 1 tutorial video (20–30 mins)', icon: '▶️' },
                   { time: '12:00 PM', task: 'Lunch break practice — solve 1 problem', icon: '💡' },
                   { time: '6:00 PM', task: 'Main study session (1–2 hrs)', icon: '📚' },
                   { time: '8:00 PM', task: 'Build / code / practice project', icon: '💻' },
-                  { time: '10:00 PM', task: 'Review + mark today\'s tasks done', icon: '✅' },
+                  { time: '10:00 PM', task: "Review + mark today's tasks done", icon: '✅' },
                 ].map((slot, i) => (
                   <div key={i} className="flex items-center gap-4 bg-[#1A1A2E] rounded-xl p-3 border border-purple-900/20">
                     <div className="text-lg">{slot.icon}</div>
@@ -316,14 +336,45 @@ export default function Journey() {
                 ))}
               </div>
             </div>
+
+            {/* Daily Reminder */}
+            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mt-4">
+              <h2 className="font-bold text-lg mb-1">🔔 Daily Reminder</h2>
+              <p className="text-gray-400 text-xs mb-4">Get an email reminder to keep your streak!</p>
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-white font-medium">Enable Reminders</span>
+                <button
+                  onClick={() => setReminderEnabled(!reminderEnabled)}
+                  className={`w-12 h-6 rounded-full transition-all relative ${reminderEnabled ? 'bg-purple-600' : 'bg-gray-600'}`}
+                >
+                  <div className={`w-5 h-5 bg-white rounded-full transition-all absolute top-0.5 ${reminderEnabled ? 'left-6' : 'left-0.5'}`} />
+                </button>
+              </div>
+              {reminderEnabled && (
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="text-gray-400 text-sm">Remind me at</span>
+                  <input
+                    type="time"
+                    value={reminderTime}
+                    onChange={e => setReminderTime(e.target.value)}
+                    className="bg-[#1A1A2E] border border-purple-900/30 text-white px-3 py-2 rounded-lg"
+                  />
+                </div>
+              )}
+              <button
+                onClick={saveReminder}
+                className="w-full py-3 bg-purple-600 rounded-xl font-semibold hover:bg-purple-700 transition-all"
+              >
+                {reminderSaved ? '✅ Saved!' : '💾 Save Reminder'}
+              </button>
+            </div>
+
           </motion.div>
         )}
 
         {/* ALL PHASES TAB */}
         {activeTab === 'phases' && (
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-
-            {/* Phase Tabs */}
             <div className="flex gap-2 flex-wrap mb-4">
               {result.roadmap?.map((phase, i) => (
                 <button
