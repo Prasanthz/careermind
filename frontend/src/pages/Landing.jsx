@@ -12,19 +12,28 @@ export default function Landing() {
     fetch(`${import.meta.env.VITE_API_URL}/api/stats`)
       .then(r => r.json())
       .then(data => {
-        setTestedCount(data.tested)
+        setTestedCount(data.tested ?? null)
         setQuestionCount(data.questionCount || 25)
       })
-      .catch(() => setTestedCount(null))
+      .catch(() => {})
   }, [])
 
   const features = [
     { icon: '🧠', title: 'AI-Powered Analysis', desc: 'Advanced AI analyzes your personality with scientific accuracy' },
-    { icon: '💼', title: 'Career Matching', desc: 'Get matched to careers that fit your unique personality type' },
-    { icon: '📚', title: 'Learning Roadmap', desc: 'Step-by-step courses, videos and certifications to reach your goal' },
-    { icon: '📊', title: 'Skill Gap Analysis', desc: 'Discover exactly what skills you need to learn next' },
-    { icon: '📥', title: 'PDF Report', desc: 'Download your complete personality and career report' },
-    { icon: '🔔', title: 'Daily Reminders', desc: 'Stay on track with personalized daily learning reminders' },
+    { icon: '🎯', title: 'Career Matching', desc: 'Get matched with careers that perfectly fit your personality type' },
+    { icon: '📚', title: 'Learning Roadmap', desc: 'Personalized step-by-step roadmap with courses and resources' },
+    { icon: '🔥', title: 'Daily Streaks', desc: 'Stay motivated with daily goals, streaks, and achievement badges' },
+    { icon: '📊', title: 'Progress Tracking', desc: 'Track your journey through phases with visual progress bars' },
+    { icon: '🔔', title: 'Daily Reminders', desc: 'Get email reminders to keep your learning streak alive' },
+  ]
+
+  const userTypes = [
+    { icon: '🎒', type: 'School Student', desc: 'Plan your future early' },
+    { icon: '🎓', type: 'College Student', desc: 'Choose the right specialization' },
+    { icon: '💼', type: 'Job Seeker', desc: 'Find your ideal career' },
+    { icon: '🔄', type: 'Career Switcher', desc: 'Pivot with confidence' },
+    { icon: '💼', type: 'Professional', desc: 'Accelerate your career growth' },
+    { icon: '🌍', type: 'Anyone', desc: 'Discover your true potential' },
   ]
 
   const steps = [
@@ -34,25 +43,13 @@ export default function Landing() {
     { num: '04', title: 'Start Journey', desc: 'Follow your personalized learning roadmap' },
   ]
 
-  const userTypes = [
-    { icon: '🎒', type: 'School Student', desc: 'Find the right stream for you' },
-    { icon: '🎓', type: 'College Student', desc: 'Choose the best specialization' },
-    { icon: '💼', type: 'Job Seeker', desc: 'Land your perfect first job' },
-    { icon: '🔄', type: 'Career Switcher', desc: 'Transition smoothly to a new field' },
-    { icon: '👩‍💼', type: 'Professional', desc: 'Accelerate your career growth' },
-    { icon: '🌍', type: 'Anyone', desc: 'Discover your true potential' },
-  ]
-
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white">
 
       {/* Navbar */}
       <nav className="fixed top-0 w-full z-50 bg-[#1A1A2E]/90 backdrop-blur-md border-b border-purple-900/30">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🧠</span>
-            <span className="text-xl font-bold text-purple-400">CareerMind AI</span>
-          </div>
+        <div className="max-w-6xl mx-auto px-4 py-3 flex justify-between items-center">
+          <img src="/logo.svg" alt="CareerMind AI" className="h-10 w-auto" />
           <div className="flex gap-3">
             <button
               onClick={() => navigate('/login')}
@@ -81,6 +78,9 @@ export default function Landing() {
           <span className="inline-block bg-purple-600/20 text-purple-400 px-4 py-2 rounded-full text-sm font-medium mb-6 border border-purple-600/30">
             🚀 AI-Powered Career Guidance
           </span>
+          <div className="flex justify-center mb-8">
+            <img src="/logo.svg" alt="CareerMind AI" className="h-20 w-auto" />
+          </div>
           <h1 className="text-4xl md:text-6xl font-extrabold mb-6 leading-tight">
             Discover Who You Are.<br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">
@@ -182,7 +182,6 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* ✅ Reviews section — shows when admin has featured reviews */}
       <LandingReviews />
 
       {/* CTA */}
@@ -208,12 +207,20 @@ export default function Landing() {
                 onClick={() => navigate('/login')}
                 className="px-10 py-4 border border-purple-600 rounded-xl text-lg font-semibold hover:bg-purple-600/20 transition-all"
               >
-                🔐 Login
+                🔐 Login to My Account
               </button>
             </div>
           </motion.div>
         </div>
       </section>
+
+      {/* Footer */}
+      <footer className="py-8 px-4 border-t border-purple-900/30 text-center">
+        <div className="flex justify-center mb-4">
+          <img src="/logo.svg" alt="CareerMind AI" className="h-8 w-auto opacity-70" />
+        </div>
+        <p className="text-gray-500 text-sm">© 2025 CareerMind AI. Built with ❤️ for career seekers everywhere.</p>
+      </footer>
 
     </div>
   )
