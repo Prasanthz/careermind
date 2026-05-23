@@ -65,10 +65,15 @@ export default function Result() {
     setResult(JSON.parse(saved))
   }, [])
 
+  // ── Loading screen with logo ──────────────────────────────────────────────
   if (!result) return (
     <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
       <div className="text-center">
-        <div className="text-5xl mb-4 animate-pulse">🧠</div>
+        <img
+          src="/logo.svg"
+          alt="CareerMind AI"
+          className="h-20 w-auto mx-auto mb-6 animate-pulse"
+        />
         <p className="text-purple-400 font-semibold">Loading your result...</p>
       </div>
     </div>
@@ -77,13 +82,10 @@ export default function Result() {
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white pb-20">
 
-      {/* Header */}
-      <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-4">
+      {/* Header with logo */}
+      <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-3">
         <div className="max-w-3xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">🧠</span>
-            <span className="text-lg font-bold text-purple-400">CareerMind AI</span>
-          </div>
+          <img src="/logo.svg" alt="CareerMind AI" className="h-10 w-auto" />
           <div className="flex items-center gap-2">
             {JSON.parse(localStorage.getItem('user') || '{}').email === 'prasanths1204@gmail.com' && (
               <button
@@ -260,7 +262,6 @@ export default function Result() {
           )}
         </motion.div>
 
-        {/* ✅ Review Submit — only shows for logged-in users */}
         <ReviewSubmit />
 
       </div>

@@ -4,69 +4,44 @@ Usage:
   python generateReport.py <json_string> <output_pdf> <output_png>
 """
 
-import sys, json, textwrap, os, math
+import sys, json, os
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.platypus import (
     BaseDocTemplate, PageTemplate, Frame,
     Paragraph, Spacer, Table, TableStyle,
-    HRFlowable, KeepTogether
+    HRFlowable
 )
 from reportlab.lib.colors import HexColor
-from reportlab.graphics.shapes import Drawing, Path, Circle, Line, String, Group
-from reportlab.graphics import renderPDF
 from PIL import Image, ImageDraw, ImageFont
 
-# ── COLOURS ───────────────────────────────────────────────────────────────────
+# ── COLOURS ────────────────────────────────────────────────────────────────────
 C_BLACK      = HexColor("#1A1A1A")
 C_DARK_GRAY  = HexColor("#4A4A4A")
 C_MID_GRAY   = HexColor("#787878")
-C_LIGHT_GRAY = HexColor("#F2F2F2")
 C_WHITE      = colors.white
 C_PURPLE     = HexColor("#7c3aed")
 C_PINK       = HexColor("#db2777")
-C_PURPLE_MID = HexColor("#9333ea")
-C_ACCENT     = HexColor("#1A3A5C")
-C_ACCENT2    = HexColor("#2E6DA4")
 C_BORDER     = HexColor("#CCCCCC")
-C_GREEN      = HexColor("#2D6A4F")
-C_ORANGE     = HexColor("#C25B00")
-C_DARK_BG    = HexColor("#1A1A2E")
-C_DARK_CARD  = HexColor("#16213E")
 
 PAGE_W, PAGE_H = A4
 MARGIN = 20 * mm
 
-
-# ── PIL colour helpers ────────────────────────────────────────────────────────
+# ── PIL colours ────────────────────────────────────────────────────────────────
 def rgb(h):
     h = h.lstrip("#")
     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 IMG_PURPLE    = rgb("7c3aed")
 IMG_PINK      = rgb("db2777")
-IMG_PURPLE2   = rgb("9333ea")
 IMG_DARK_BG   = rgb("1A1A2E")
 IMG_DARK_CARD = rgb("16213E")
-IMG_NAVY      = rgb("1A3A5C")
-IMG_BLUE      = rgb("2E6DA4")
-IMG_LIGHT_BLU = rgb("EAF0F8")
-IMG_BG        = rgb("FFFFFF")
-IMG_GRAY      = rgb("F2F2F2")
-IMG_DKGRAY    = rgb("4A4A4A")
-IMG_MDGRAY    = rgb("787878")
-IMG_BLACK     = rgb("1A1A1A")
-IMG_GREEN     = rgb("2D6A4F")
-IMG_ORANGE    = rgb("C25B00")
-IMG_BORDER    = rgb("CCCCCC")
 IMG_WHITE     = (255, 255, 255)
-IMG_HEADER_TX = (168, 196, 224)
 
 CARD_W, CARD_H = 1200, 780
-
 
 # ── font loader ────────────────────────────────────────────────────────────────
 def load_font(size, bold=False):
@@ -89,18 +64,15 @@ def load_font(size, bold=False):
                 pass
     return ImageFont.load_default()
 
-
-# ── drawing helpers ────────────────────────────────────────────────────────────
+# ── PIL helpers ────────────────────────────────────────────────────────────────
 def rect(draw, x, y, w, h, fill, radius=0):
     if radius:
         draw.rounded_rectangle([x, y, x + w, y + h], radius=radius, fill=fill)
     else:
         draw.rectangle([x, y, x + w, y + h], fill=fill)
 
-
 def text_w(draw, text, font):
     return int(draw.textlength(text, font=font))
-
 
 def wrap(draw, text, font, max_w):
     words = text.split()
@@ -117,381 +89,334 @@ def wrap(draw, text, font, max_w):
         lines.append(" ".join(line))
     return lines
 
+# ── Brain logo drawn with PIL on RGB image ─────────────────────────────────────
+def draw_brain_logo(draw, cx, cy, s=1.0):
+    """Draw brain + circuit logo centred at (cx, cy), scale s."""
+    purple = IMG_PURPLE
+    pink   = IMG_PINK
+    lw = max(2, int(2.5 * s))
 
-def gradient_rect(img, x, y, w, h, color1, color2, radius=0):
-    """Draw a horizontal gradient rectangle on a PIL image."""
-    overlay = Image.new('RGBA', img.size, (0, 0, 0, 0))
-    draw = ImageDraw.Draw(overlay)
-    for i in range(w):
-        t = i / max(w - 1, 1)
-        r = int(color1[0] + (color2[0] - color1[0]) * t)
-        g = int(color1[1] + (color2[1] - color1[1]) * t)
-        b = int(color1[2] + (color2[2] - color1[2]) * t)
-        if radius and (i < radius or i > w - radius):
-            draw.line([(x + i, y), (x + i, y + h)], fill=(r, g, b, 255))
-        else:
-            draw.line([(x + i, y), (x + i, y + h)], fill=(r, g, b, 255))
-    if radius:
-        mask = Image.new('L', (w, h), 0)
-        mask_draw = ImageDraw.Draw(mask)
-        mask_draw.rounded_rectangle([0, 0, w, h], radius=radius, fill=255)
-        cropped = overlay.crop((x, y, x + w, y + h))
-        cropped.putalpha(mask)
-        img.paste(cropped, (x, y), cropped)
-    else:
-        img.paste(overlay.crop((x, y, x + w, y + h)), (x, y))
+    # Left hemisphere
+    draw.arc([cx - int(40*s), cy - int(30*s), cx - int(2*s),  cy + int(50*s)],
+             start=200, end=355, fill=purple, width=lw)
+    draw.arc([cx - int(46*s), cy - int(12*s), cx - int(10*s), cy + int(34*s)],
+             start=155, end=225, fill=purple, width=lw)
+    # Right hemisphere
+    draw.arc([cx + int(2*s),  cy - int(30*s), cx + int(40*s), cy + int(50*s)],
+             start=185, end=340, fill=pink,   width=lw)
+    draw.arc([cx + int(10*s), cy - int(12*s), cx + int(46*s), cy + int(34*s)],
+             start=315, end=25,  fill=pink,   width=lw)
+    # Top arc
+    draw.arc([cx - int(28*s), cy - int(40*s), cx + int(28*s), cy + int(8*s)],
+             start=205, end=335, fill=purple, width=lw)
+    # Center divider
+    slw = max(1, int(1.5 * s))
+    draw.line([(cx, cy - int(34*s)), (cx, cy + int(48*s))], fill=(160, 100, 230), width=slw)
 
+    # Left circuits
+    clw = max(1, int(1.5 * s))
+    dot = max(3, int(3.5 * s))
+    lx1, ly1 = cx - int(42*s), cy
+    lx2, ly2 = cx - int(58*s), cy
+    lx3, ly3 = cx - int(64*s), cy - int(11*s)
+    draw.line([(lx1,ly1),(lx2,ly2),(lx3,ly3)], fill=purple, width=clw)
+    draw.ellipse([lx3-dot, ly3-dot, lx3+dot, ly3+dot], fill=purple)
 
-def draw_logo_pil(draw, img, x, y, scale=1.0):
-    """Draw CareerMind AI brain+circuit logo using PIL."""
-    s = scale
-    cx, cy = x + int(52 * s), y + int(52 * s)
-    r = int(48 * s)
+    lx1b, ly1b = cx - int(44*s), cy + int(16*s)
+    lx2b, ly2b = cx - int(60*s), cy + int(16*s)
+    lx3b, ly3b = cx - int(66*s), cy + int(25*s)
+    draw.line([(lx1b,ly1b),(lx2b,ly2b),(lx3b,ly3b)], fill=purple, width=clw)
+    draw.ellipse([lx3b-dot, ly3b-dot, lx3b+dot, ly3b+dot], fill=purple)
 
-    # Glow circle
-    for i in range(3):
-        draw.ellipse(
-            [cx - r - i*2, cy - r - i*2, cx + r + i*2, cy + r + i*2],
-            outline=(124, 58, 237, 40), width=1
-        )
+    # Right circuits
+    rx1, ry1 = cx + int(42*s), cy
+    rx2, ry2 = cx + int(58*s), cy
+    rx3, ry3 = cx + int(64*s), cy - int(11*s)
+    draw.line([(rx1,ry1),(rx2,ry2),(rx3,ry3)], fill=pink, width=clw)
+    draw.ellipse([rx3-dot, ry3-dot, rx3+dot, ry3+dot], fill=pink)
 
-    # Brain curves (simplified using arcs/lines)
-    lw = max(2, int(2.2 * s))
-    purple = (124, 58, 237)
-    pink = (219, 39, 119)
-
-    # Left hemisphere outline
-    draw.arc([cx - int(42*s), cy - int(28*s), cx - int(2*s), cy + int(52*s)],
-             start=200, end=360, fill=purple, width=lw)
-    draw.arc([cx - int(48*s), cy - int(10*s), cx - int(8*s), cy + int(36*s)],
-             start=160, end=220, fill=purple, width=lw)
-
-    # Right hemisphere outline
-    draw.arc([cx + int(2*s), cy - int(28*s), cx + int(42*s), cy + int(52*s)],
-             start=180, end=340, fill=pink, width=lw)
-    draw.arc([cx + int(8*s), cy - int(10*s), cx + int(48*s), cy + int(36*s)],
-             start=320, end=20, fill=pink, width=lw)
-
-    # Top arc connecting hemispheres
-    draw.arc([cx - int(30*s), cy - int(38*s), cx + int(30*s), cy + int(10*s)],
-             start=200, end=340, fill=purple, width=lw)
-
-    # Center split line
-    for i in range(int(70 * s)):
-        t = i / (70 * s)
-        r2 = int(124 + (219 - 124) * t)
-        g2 = int(58 + (39 - 58) * t)
-        b2 = int(237 + (119 - 237) * t)
-        py = cy - int(32 * s) + i
-        draw.line([(cx, py), (cx, py + 1)], fill=(r2, g2, b2, 180), width=1)
-
-    # Circuit nodes and lines - left
-    nodes_l = [
-        (cx - int(44*s), cy - int(2*s), cx - int(60*s), cy - int(2*s), cx - int(66*s), cy - int(12*s)),
-        (cx - int(46*s), cy + int(14*s), cx - int(62*s), cy + int(14*s), cx - int(68*s), cy + int(22*s)),
-    ]
-    for nx1, ny1, nx2, ny2, nx3, ny3 in nodes_l:
-        draw.line([(nx1, ny1), (nx2, ny2), (nx3, ny3)], fill=purple, width=max(1, int(1.3*s)))
-        draw.ellipse([nx3-int(3*s), ny3-int(3*s), nx3+int(3*s), ny3+int(3*s)], fill=purple)
-
-    # Circuit nodes and lines - right
-    nodes_r = [
-        (cx + int(44*s), cy - int(2*s), cx + int(60*s), cy - int(2*s), cx + int(66*s), cy - int(12*s)),
-        (cx + int(46*s), cy + int(14*s), cx + int(62*s), cy + int(14*s), cx + int(68*s), cy + int(22*s)),
-    ]
-    for nx1, ny1, nx2, ny2, nx3, ny3 in nodes_r:
-        draw.line([(nx1, ny1), (nx2, ny2), (nx3, ny3)], fill=pink, width=max(1, int(1.3*s)))
-        draw.ellipse([nx3-int(3*s), ny3-int(3*s), nx3+int(3*s), ny3+int(3*s)], fill=pink)
+    rx1b, ry1b = cx + int(44*s), cy + int(16*s)
+    rx2b, ry2b = cx + int(60*s), cy + int(16*s)
+    rx3b, ry3b = cx + int(66*s), cy + int(25*s)
+    draw.line([(rx1b,ry1b),(rx2b,ry2b),(rx3b,ry3b)], fill=pink, width=clw)
+    draw.ellipse([rx3b-dot, ry3b-dot, rx3b+dot, ry3b+dot], fill=pink)
 
     # Top circuits
-    draw.line([(cx - int(8*s), cy - int(36*s)), (cx - int(8*s), cy - int(48*s)),
-               (cx - int(16*s), cy - int(54*s))], fill=purple, width=max(1, int(1.3*s)))
-    draw.ellipse([cx-int(19*s), cy-int(57*s), cx-int(13*s), cy-int(51*s)], fill=purple)
+    draw.line([(cx - int(8*s), cy - int(38*s)),
+               (cx - int(8*s), cy - int(50*s)),
+               (cx - int(16*s), cy - int(56*s))], fill=purple, width=clw)
+    draw.ellipse([cx-int(19*s), cy-int(59*s), cx-int(13*s), cy-int(53*s)], fill=purple)
 
-    draw.line([(cx + int(8*s), cy - int(36*s)), (cx + int(8*s), cy - int(48*s)),
-               (cx + int(16*s), cy - int(54*s))], fill=pink, width=max(1, int(1.3*s)))
-    draw.ellipse([cx+int(13*s), cy-int(57*s), cx+int(19*s), cy-int(51*s)], fill=pink)
+    draw.line([(cx + int(8*s), cy - int(38*s)),
+               (cx + int(8*s), cy - int(50*s)),
+               (cx + int(16*s), cy - int(56*s))], fill=pink, width=clw)
+    draw.ellipse([cx+int(13*s), cy-int(59*s), cx+int(19*s), cy-int(53*s)], fill=pink)
 
     # Inner nodes
+    nd = max(2, int(2.5 * s))
     for nx, ny, col in [
-        (cx - int(18*s), cy - int(8*s), purple),
-        (cx - int(2*s), cy - int(12*s), purple),
-        (cx + int(2*s), cy - int(12*s), pink),
-        (cx + int(18*s), cy - int(8*s), pink),
+        (cx - int(18*s), cy - int(10*s), purple),
+        (cx - int(2*s),  cy - int(14*s), purple),
+        (cx + int(2*s),  cy - int(14*s), pink),
+        (cx + int(18*s), cy - int(10*s), pink),
     ]:
-        draw.ellipse([nx-int(2*s), ny-int(2*s), nx+int(2*s), ny+int(2*s)], fill=col)
+        draw.ellipse([nx-nd, ny-nd, nx+nd, ny+nd], fill=col)
 
 
-# ── ReportLab logo drawing for PDF ───────────────────────────────────────────
-def draw_pdf_logo_header(canvas_obj, x, y, width=180, height=50):
-    """Draw the CareerMind AI logo header on a PDF canvas."""
+# ── PDF logo header drawn with ReportLab canvas ───────────────────────────────
+def draw_pdf_logo_header(canvas_obj, x, y, width, height):
     canvas_obj.saveState()
 
-    # Gradient background bar
-    from reportlab.lib.colors import HexColor
-    steps = 40
+    # Gradient bar (purple → pink)
+    steps = 60
     for i in range(steps):
         t = i / steps
-        r = int(0x7c + (0xdb - 0x7c) * t) / 255
-        g = int(0x3a + (0x27 - 0x3a) * t) / 255
-        b = int(0xed + (0x77 - 0xed) * t) / 255
+        r = (0x7c + (0xdb - 0x7c) * t) / 255
+        g = (0x3a + (0x27 - 0x3a) * t) / 255
+        b = (0xed + (0x77 - 0xed) * t) / 255
         canvas_obj.setFillColorRGB(r, g, b)
-        canvas_obj.rect(x + i * (width / steps), y, width / steps + 1, height, fill=1, stroke=0)
+        canvas_obj.rect(x + i * (width / steps), y, width / steps + 0.5, height, fill=1, stroke=0)
 
-    # Brain icon (simplified circles + lines)
-    bx = x + 18
+    # Brain icon — white strokes on gradient bar
+    bx = x + 22
     by = y + height / 2
-
     canvas_obj.setStrokeColorRGB(1, 1, 1)
     canvas_obj.setFillColorRGB(1, 1, 1)
-    canvas_obj.setLineWidth(1.2)
+    canvas_obj.setLineWidth(1.4)
 
-    # Brain halves (arcs approximated as bezier)
+    # Left hemisphere
     p = canvas_obj.beginPath()
-    # Left half
-    p.moveTo(bx, by + 10)
-    p.curveTo(bx - 12, by + 10, bx - 15, by + 3, bx - 14, by - 3)
-    p.curveTo(bx - 13, by - 9, bx - 8, by - 12, bx, by - 12)
+    p.moveTo(bx, by - 13)
+    p.curveTo(bx - 10, by - 13, bx - 16, by - 6, bx - 15, by)
+    p.curveTo(bx - 14, by + 7, bx - 9, by + 12, bx, by + 12)
     canvas_obj.drawPath(p, fill=0, stroke=1)
 
+    # Right hemisphere
     p2 = canvas_obj.beginPath()
-    # Right half
-    p2.moveTo(bx, by + 10)
-    p2.curveTo(bx + 12, by + 10, bx + 15, by + 3, bx + 14, by - 3)
-    p2.curveTo(bx + 13, by - 9, bx + 8, by - 12, bx, by - 12)
+    p2.moveTo(bx, by - 13)
+    p2.curveTo(bx + 10, by - 13, bx + 16, by - 6, bx + 15, by)
+    p2.curveTo(bx + 14, by + 7, bx + 9, by + 12, bx, by + 12)
     canvas_obj.drawPath(p2, fill=0, stroke=1)
 
-    # Center line
+    # Center divider
     canvas_obj.setLineWidth(0.8)
-    canvas_obj.line(bx, by - 12, bx, by + 10)
+    canvas_obj.line(bx, by - 13, bx, by + 12)
 
-    # Circuit dots
+    # Circuit lines + dots — left
+    canvas_obj.setLineWidth(0.9)
+    canvas_obj.line(bx - 15, by,     bx - 22, by)
+    canvas_obj.line(bx - 15, by + 6, bx - 22, by + 6)
+    canvas_obj.line(bx - 22, by,     bx - 26, by - 4)
+    canvas_obj.line(bx - 22, by + 6, bx - 26, by + 10)
+    canvas_obj.circle(bx - 26, by - 4,  1.8, fill=1, stroke=0)
+    canvas_obj.circle(bx - 26, by + 10, 1.8, fill=1, stroke=0)
+
+    # Circuit lines + dots — right
+    canvas_obj.line(bx + 15, by,     bx + 22, by)
+    canvas_obj.line(bx + 15, by + 6, bx + 22, by + 6)
+    canvas_obj.line(bx + 22, by,     bx + 26, by - 4)
+    canvas_obj.line(bx + 22, by + 6, bx + 26, by + 10)
+    canvas_obj.circle(bx + 26, by - 4,  1.8, fill=1, stroke=0)
+    canvas_obj.circle(bx + 26, by + 10, 1.8, fill=1, stroke=0)
+
+    # Top circuits
+    canvas_obj.line(bx - 4, by - 13, bx - 4, by - 19)
+    canvas_obj.line(bx - 4, by - 19, bx - 8, by - 23)
+    canvas_obj.circle(bx - 8, by - 23, 1.8, fill=1, stroke=0)
+    canvas_obj.line(bx + 4, by - 13, bx + 4, by - 19)
+    canvas_obj.line(bx + 4, by - 19, bx + 8, by - 23)
+    canvas_obj.circle(bx + 8, by - 23, 1.8, fill=1, stroke=0)
+
+    # Text: CareerMind AI
     canvas_obj.setFillColorRGB(1, 1, 1)
-    for dx, dy in [(-18, 0), (-19, 6), (18, 0), (19, 6)]:
-        canvas_obj.circle(bx + dx, by + dy, 1.5, fill=1, stroke=0)
-
-    # Lines to dots
-    canvas_obj.setLineWidth(0.8)
-    canvas_obj.line(bx - 14, by, bx - 18, by)
-    canvas_obj.line(bx - 14, by + 6, bx - 19, by + 6)
-    canvas_obj.line(bx + 14, by, bx + 18, by)
-    canvas_obj.line(bx + 14, by + 6, bx + 19, by + 6)
-
-    # CareerMind AI text
-    canvas_obj.setFillColorRGB(1, 1, 1)
-    canvas_obj.setFont("Helvetica-Bold", 16)
-    canvas_obj.drawString(x + 44, y + height / 2 + 3, "CareerMind")
-    canvas_obj.setFont("Helvetica-Bold", 11)
-    canvas_obj.drawString(x + 44, y + height / 2 - 11, "AI  •  DISCOVER YOUR PATH")
+    canvas_obj.setFont("Helvetica-Bold", 17)
+    canvas_obj.drawString(x + 62, y + height / 2 + 4, "CareerMind")
+    canvas_obj.setFont("Helvetica-Bold", 10)
+    canvas_obj.drawString(x + 62, y + height / 2 - 10, "AI  \u2022  DISCOVER YOUR PATH")
 
     canvas_obj.restoreState()
 
 
-# ── PDF page template ─────────────────────────────────────────────────────────
+# ── PDF builder ────────────────────────────────────────────────────────────────
 def make_pdf(result, pdf_path):
-    ptype = result.get("personality_type", "")
-    pname = result.get("personality_name", "")
-    summary = result.get("summary", "")
+    ptype     = result.get("personality_type", "")
+    pname     = result.get("personality_name", "")
+    summary   = result.get("summary", "")
     strengths = result.get("strengths", [])
-    careers = result.get("careers", [])
-    roadmap = result.get("roadmap", [])
-    courses = result.get("courses", [])
+    careers   = result.get("careers", [])
+    roadmap   = result.get("roadmap", [])
+    courses   = result.get("courses", [])
 
     PURPLE = HexColor("#7c3aed")
     PINK   = HexColor("#db2777")
-    DARK   = HexColor("#1A1A2E")
-    CARD   = HexColor("#16213E")
 
     doc = BaseDocTemplate(
-        pdf_path,
-        pagesize=A4,
+        pdf_path, pagesize=A4,
         leftMargin=MARGIN, rightMargin=MARGIN,
-        topMargin=MARGIN + 20*mm, bottomMargin=MARGIN,
+        topMargin=MARGIN + 22*mm, bottomMargin=MARGIN,
     )
 
-    def header_footer(canvas_obj, doc_obj):
+    def on_page(canvas_obj, doc_obj):
         canvas_obj.saveState()
-        # Logo header bar
-        draw_pdf_logo_header(canvas_obj, MARGIN, PAGE_H - MARGIN - 40, PAGE_W - 2*MARGIN, 40)
-        # Footer
+        draw_pdf_logo_header(canvas_obj, MARGIN, PAGE_H - MARGIN - 44, PAGE_W - 2*MARGIN, 44)
         canvas_obj.setFont("Helvetica", 8)
         canvas_obj.setFillColor(C_MID_GRAY)
         canvas_obj.drawCentredString(PAGE_W / 2, MARGIN / 2,
-            f"CareerMind AI — {ptype} ({pname}) — Confidential Career Report")
-        canvas_obj.setFillColor(C_MID_GRAY)
-        canvas_obj.drawRightString(PAGE_W - MARGIN, MARGIN / 2,
-            f"Page {doc_obj.page}")
+            f"CareerMind AI \u2014 {ptype} ({pname}) \u2014 Confidential Career Report")
+        canvas_obj.drawRightString(PAGE_W - MARGIN, MARGIN / 2, f"Page {doc_obj.page}")
         canvas_obj.restoreState()
 
-    frame = Frame(MARGIN, MARGIN, PAGE_W - 2*MARGIN, PAGE_H - 2*MARGIN - 45,
+    frame = Frame(MARGIN, MARGIN, PAGE_W - 2*MARGIN, PAGE_H - 2*MARGIN - 50,
                   id='normal', showBoundary=0)
-    template = PageTemplate(id='main', frames=[frame], onPage=header_footer)
-    doc.addPageTemplates([template])
+    doc.addPageTemplates([PageTemplate(id='main', frames=[frame], onPage=on_page)])
 
-    styles = {
-        'h1': ParagraphStyle('h1', fontName='Helvetica-Bold', fontSize=22,
-                              textColor=PURPLE, spaceAfter=4, alignment=TA_CENTER),
-        'h2': ParagraphStyle('h2', fontName='Helvetica-Bold', fontSize=14,
-                              textColor=PURPLE, spaceBefore=12, spaceAfter=4),
-        'body': ParagraphStyle('body', fontName='Helvetica', fontSize=10,
-                                textColor=C_DARK_GRAY, spaceAfter=6, leading=15),
-        'small': ParagraphStyle('small', fontName='Helvetica', fontSize=9,
-                                 textColor=C_MID_GRAY, spaceAfter=3),
-        'tag': ParagraphStyle('tag', fontName='Helvetica-Bold', fontSize=10,
-                               textColor=PINK, spaceAfter=6),
-        'center': ParagraphStyle('center', fontName='Helvetica', fontSize=10,
-                                  textColor=C_DARK_GRAY, alignment=TA_CENTER),
+    S = {
+        'h1':   ParagraphStyle('h1',   fontName='Helvetica-Bold', fontSize=22,
+                               textColor=PURPLE, spaceAfter=4,  alignment=TA_CENTER),
+        'h2':   ParagraphStyle('h2',   fontName='Helvetica-Bold', fontSize=14,
+                               textColor=PURPLE, spaceBefore=12, spaceAfter=4),
+        'body': ParagraphStyle('body', fontName='Helvetica',      fontSize=10,
+                               textColor=C_DARK_GRAY, spaceAfter=6, leading=15),
+        'sm':   ParagraphStyle('sm',   fontName='Helvetica',      fontSize=9,
+                               textColor=C_MID_GRAY,  spaceAfter=3),
     }
 
     story = []
-
-    # Title block
     story.append(Spacer(1, 6))
-    story.append(Paragraph(f"{ptype}", styles['h1']))
-    story.append(Paragraph(f"<font color='#db2777'>{pname}</font>", ParagraphStyle(
-        'sub', fontName='Helvetica-Bold', fontSize=14, textColor=PINK,
-        alignment=TA_CENTER, spaceAfter=8)))
+    story.append(Paragraph(ptype, S['h1']))
+    story.append(Paragraph(f"<font color='#db2777'>{pname}</font>",
+                            ParagraphStyle('sub', fontName='Helvetica-Bold', fontSize=14,
+                                           textColor=PINK, alignment=TA_CENTER, spaceAfter=8)))
     story.append(HRFlowable(width="100%", thickness=0.5, color=PURPLE, spaceAfter=10))
 
-    # Summary
-    story.append(Paragraph("Personality Overview", styles['h2']))
-    story.append(Paragraph(summary, styles['body']))
+    story.append(Paragraph("Personality Overview", S['h2']))
+    story.append(Paragraph(summary, S['body']))
 
-    # Strengths
     if strengths:
         story.append(Spacer(1, 4))
-        story.append(Paragraph("Key Strengths", styles['h2']))
+        story.append(Paragraph("Key Strengths", S['h2']))
         for s in strengths[:6]:
-            story.append(Paragraph(f"<b>•</b>  {s}", styles['body']))
+            story.append(Paragraph(f"<b>\u2022</b>  {s}", S['body']))
 
-    # Careers
     if careers:
         story.append(Spacer(1, 4))
-        story.append(Paragraph("Recommended Career Paths", styles['h2']))
-        career_rows = []
+        story.append(Paragraph("Recommended Career Paths", S['h2']))
+        rows = []
         for i in range(0, len(careers), 2):
-            row = [careers[i]]
-            if i + 1 < len(careers):
-                row.append(careers[i + 1])
-            else:
-                row.append("")
-            career_rows.append(row)
-        t = Table(career_rows, colWidths=[(PAGE_W - 2*MARGIN) / 2]*2)
+            rows.append([careers[i], careers[i+1] if i+1 < len(careers) else ""])
+        t = Table(rows, colWidths=[(PAGE_W - 2*MARGIN) / 2]*2)
         t.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), HexColor("#EDE9FE")),
-            ('TEXTCOLOR', (0, 0), (-1, -1), PURPLE),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('ROWBACKGROUNDS', (0, 0), (-1, -1), [HexColor("#EDE9FE"), HexColor("#FCE7F3")]),
-            ('PADDING', (0, 0), (-1, -1), 8),
-            ('GRID', (0, 0), (-1, -1), 0.3, HexColor("#C4B5FD")),
-            ('ROUNDEDCORNERS', [4], ),
+            ('ROWBACKGROUNDS', (0,0), (-1,-1), [HexColor("#EDE9FE"), HexColor("#FCE7F3")]),
+            ('TEXTCOLOR',      (0,0), (-1,-1), PURPLE),
+            ('FONTNAME',       (0,0), (-1,-1), 'Helvetica-Bold'),
+            ('FONTSIZE',       (0,0), (-1,-1), 10),
+            ('PADDING',        (0,0), (-1,-1), 8),
+            ('GRID',           (0,0), (-1,-1), 0.3, HexColor("#C4B5FD")),
         ]))
         story.append(t)
 
-    # Roadmap
     if roadmap:
         story.append(Spacer(1, 8))
-        story.append(Paragraph("Your Learning Roadmap", styles['h2']))
+        story.append(Paragraph("Your Learning Roadmap", S['h2']))
         for phase in roadmap[:4]:
             story.append(Paragraph(
-                f"<font color='#db2777'><b>{phase.get('month','')}</b></font>  —  {phase.get('goal','')}",
-                styles['body']))
+                f"<font color='#db2777'><b>{phase.get('month','')}</b></font>  \u2014  {phase.get('goal','')}",
+                S['body']))
             for task in phase.get('tasks', [])[:3]:
-                story.append(Paragraph(f"    ◦  {task}", styles['small']))
+                story.append(Paragraph(f"    \u25e6  {task}", S['sm']))
 
-    # Courses
     if courses:
         story.append(Spacer(1, 8))
-        story.append(Paragraph("Recommended Courses", styles['h2']))
+        story.append(Paragraph("Recommended Courses", S['h2']))
         for c in courses[:5]:
-            story.append(Paragraph(f"<b>•</b>  {c}", styles['body']))
+            story.append(Paragraph(f"<b>\u2022</b>  {c}", S['body']))
 
-    # Footer note
     story.append(Spacer(1, 16))
     story.append(HRFlowable(width="100%", thickness=0.3, color=C_BORDER))
     story.append(Spacer(1, 4))
     story.append(Paragraph(
-        "Generated by <b>CareerMind AI</b> — careermind-eight.vercel.app",
+        "Generated by <b>CareerMind AI</b> \u2014 careermind-eight.vercel.app",
         ParagraphStyle('ft', fontName='Helvetica', fontSize=8,
                         textColor=C_MID_GRAY, alignment=TA_CENTER)))
 
     doc.build(story)
 
 
-# ── PNG card ──────────────────────────────────────────────────────────────────
+# ── PNG card builder ───────────────────────────────────────────────────────────
 def make_png(result, png_path):
-    ptype  = result.get("personality_type", "INTJ")
-    pname  = result.get("personality_name", "The Architect")
-    careers = result.get("careers", [])
+    ptype     = result.get("personality_type", "INTJ")
+    pname     = result.get("personality_name", "The Architect")
+    careers   = result.get("careers", [])
     strengths = result.get("strengths", [])
 
-    img = Image.new("RGB", (CARD_W, CARD_H), IMG_DARK_BG)
+    img  = Image.new("RGB", (CARD_W, CARD_H), IMG_DARK_BG)
     draw = ImageDraw.Draw(img)
 
-    # Header gradient bar
+    # ── Header gradient bar (purple → pink) ───────────────────────────────────
     for i in range(CARD_W):
         t = i / CARD_W
         r = int(0x7c + (0xdb - 0x7c) * t)
         g = int(0x3a + (0x27 - 0x3a) * t)
         b = int(0xed + (0x77 - 0xed) * t)
-        draw.line([(i, 0), (i, 90)], fill=(r, g, b))
+        draw.line([(i, 0), (i, 95)], fill=(r, g, b))
 
-    # Brain logo in header
-    draw_logo_pil(draw, img, 30, 5, scale=0.75)
+    # ── Brain logo in header ──────────────────────────────────────────────────
+    # cx=80, cy=48 puts the brain centred in the 95px header bar
+    draw_brain_logo(draw, cx=85, cy=48, s=0.72)
 
-    # Header text
-    fb = load_font(28, bold=True)
-    fm = load_font(18, bold=False)
-    fs = load_font(14, bold=False)
-    fxs = load_font(12, bold=False)
+    # ── Header text ───────────────────────────────────────────────────────────
+    fb  = load_font(30, bold=True)
+    fxs = load_font(13, bold=False)
+    draw.text((185, 18), "CareerMind AI",    font=fb,  fill=IMG_WHITE)
+    draw.text((185, 58), "DISCOVER YOUR PATH", font=fxs, fill=(230, 195, 255))
 
-    draw.text((165, 20), "CareerMind AI", font=fb, fill=IMG_WHITE)
-    draw.text((165, 54), "DISCOVER YOUR PATH", font=fxs, fill=(220, 180, 255))
+    # Thin separator under header
+    draw.rectangle([0, 95, CARD_W, 97], fill=(70, 25, 120))
 
-    # Separator
-    draw.rectangle([0, 90, CARD_W, 92], fill=(60, 20, 100))
+    # ── Personality type block ────────────────────────────────────────────────
+    rect(draw, 40, 118, CARD_W - 80, 108, IMG_DARK_CARD, radius=16)
 
-    # Personality type block
-    rect(draw, 40, 115, CARD_W - 80, 100, IMG_DARK_CARD, radius=16)
-
-    f_type = load_font(52, bold=True)
-    f_name = load_font(26, bold=False)
+    f_type = load_font(54, bold=True)
+    f_name = load_font(27, bold=False)
+    fs     = load_font(15, bold=False)
 
     tw = text_w(draw, ptype, f_type)
-    draw.text(((CARD_W - tw) // 2, 120), ptype, font=f_type, fill=(200, 160, 255))
+    draw.text(((CARD_W - tw) // 2, 123), ptype, font=f_type, fill=(205, 165, 255))
 
     nw = text_w(draw, pname, f_name)
-    draw.text(((CARD_W - nw) // 2, 180), pname, font=f_name, fill=(219, 39, 119))
+    draw.text(((CARD_W - nw) // 2, 185), pname, font=f_name, fill=(219, 39, 119))
 
-    # Careers section
-    rect(draw, 40, 235, 560, 200, IMG_DARK_CARD, radius=12)
-    draw.text((60, 250), "Career Matches", font=load_font(18, True), fill=(167, 139, 250))
-    draw.line([(60, 278), (580, 278)], fill=(80, 40, 140), width=1)
-
+    # ── Career matches ────────────────────────────────────────────────────────
+    rect(draw, 40, 248, 560, 210, IMG_DARK_CARD, radius=12)
+    draw.text((60, 262), "Career Matches", font=load_font(19, True), fill=(167, 139, 250))
+    draw.line([(60, 292), (580, 292)], fill=(80, 40, 140), width=1)
     for idx, career in enumerate(careers[:4]):
-        cy_pos = 290 + idx * 36
-        draw.ellipse([60, cy_pos + 5, 74, cy_pos + 19], fill=IMG_PURPLE)
-        draw.text((85, cy_pos), career[:38], font=fs, fill=IMG_WHITE)
+        yp = 304 + idx * 38
+        draw.ellipse([60, yp+6, 76, yp+22], fill=IMG_PURPLE)
+        draw.text((90, yp), career[:40], font=fs, fill=IMG_WHITE)
 
-    # Strengths section
-    rect(draw, 620, 235, 540, 200, IMG_DARK_CARD, radius=12)
-    draw.text((640, 250), "Key Strengths", font=load_font(18, True), fill=(167, 139, 250))
-    draw.line([(640, 278), (1140, 278)], fill=(80, 40, 140), width=1)
-
+    # ── Key strengths ─────────────────────────────────────────────────────────
+    rect(draw, 625, 248, 535, 210, IMG_DARK_CARD, radius=12)
+    draw.text((645, 262), "Key Strengths", font=load_font(19, True), fill=(167, 139, 250))
+    draw.line([(645, 292), (1140, 292)], fill=(80, 40, 140), width=1)
     for idx, strength in enumerate(strengths[:4]):
-        sy_pos = 290 + idx * 36
-        draw.text((640, sy_pos), f"✦  {strength[:30]}", font=fs, fill=(220, 200, 255))
+        yp = 304 + idx * 38
+        draw.text((645, yp), f"\u2756  {strength[:32]}", font=fs, fill=(225, 205, 255))
 
-    # Bottom bar
-    rect(draw, 0, CARD_H - 70, CARD_W, 70, (20, 10, 50))
-    url_font = load_font(16, bold=False)
-    draw.text((40, CARD_H - 48), "careermind-eight.vercel.app", font=url_font, fill=(140, 100, 200))
+    # ── Bottom bar ────────────────────────────────────────────────────────────
+    rect(draw, 0, CARD_H - 72, CARD_W, 72, (18, 8, 48))
 
-    # Bottom logo (small)
-    draw_logo_pil(draw, img, CARD_W - 200, CARD_H - 70, scale=0.45)
+    # Bottom-left: URL
+    url_font = load_font(17, bold=False)
+    draw.text((44, CARD_H - 50), "careermind-eight.vercel.app", font=url_font, fill=(155, 115, 215))
 
-    # Gradient overlay at bottom of card
+    # Bottom-right: small brain logo + text
+    draw_brain_logo(draw, cx=CARD_W - 110, cy=CARD_H - 36, s=0.38)
+    sm_font = load_font(14, bold=True)
+    draw.text((CARD_W - 68, CARD_H - 54), "CareerMind", font=sm_font, fill=IMG_WHITE)
+    draw.text((CARD_W - 68, CARD_H - 36), "AI",          font=load_font(12), fill=(210, 170, 255))
+
+    # Bottom gradient stripe
     for i in range(CARD_W):
         t = i / CARD_W
         r = int(0x7c + (0xdb - 0x7c) * t)
@@ -502,16 +427,14 @@ def make_png(result, png_path):
     img.save(png_path, "PNG", quality=95)
 
 
-# ── entry point ───────────────────────────────────────────────────────────────
+# ── entry point ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     if len(sys.argv) < 4:
         print("Usage: python generateReport.py <json> <pdf_path> <png_path>")
         sys.exit(1)
-
-    result = json.loads(sys.argv[1])
+    result   = json.loads(sys.argv[1])
     pdf_path = sys.argv[2]
     png_path = sys.argv[3]
-
     make_pdf(result, pdf_path)
     make_png(result, png_path)
     print("Done")
