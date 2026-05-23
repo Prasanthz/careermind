@@ -7,6 +7,7 @@ export default function Result() {
   const navigate = useNavigate()
   const [result, setResult] = useState(null)
   const [showDownload, setShowDownload] = useState(false)
+  const [newQuestionsAvailable, setNewQuestionsAvailable] = useState(false)
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -54,6 +55,19 @@ export default function Result() {
     URL.revokeObjectURL(url)
   }
 
+  const handleRetake = async () => {
+    localStorage.removeItem('result')
+    localStorage.removeItem('guestResult')
+    const token = localStorage.getItem('token')
+    if (token) {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/clear-result`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+    }
+    navigate('/quiz', { replace: true })
+  }
+
   useEffect(() => {
     const saved = isLoggedIn()
       ? localStorage.getItem('result')
@@ -63,9 +77,36 @@ export default function Result() {
       return
     }
     setResult(JSON.parse(saved))
+
+    // Check if new questions were added after user took test
+    const checkNewQuestions = async () => {
+      try {
+        const token = localStorage.getItem('token')
+        if (!token) return
+
+        const [metaRes, resultRes] = await Promise.all([
+          fetch(`${import.meta.env.VITE_API_URL}/api/quiz/meta`),
+          fetch(`${import.meta.env.VITE_API_URL}/api/quiz/latest-result`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        ])
+
+        const metaData = await metaRes.json()
+        const resultData = await resultRes.json()
+
+        if (metaData.questions_updated_at && resultData.taken_at) {
+          const takenAt = new Date(resultData.taken_at)
+          const updatedAt = new Date(metaData.questions_updated_at)
+          if (updatedAt > takenAt) {
+            setNewQuestionsAvailable(true)
+          }
+        }
+      } catch (e) {}
+    }
+
+    checkNewQuestions()
   }, [])
 
-  // ── Loading screen with logo ──────────────────────────────────────────────
   if (!result) return (
     <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
       <div className="text-center">
@@ -82,7 +123,7 @@ export default function Result() {
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white pb-20">
 
-      {/* Header with logo */}
+      {/* Header */}
       <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-3">
         <div className="max-w-3xl mx-auto flex justify-between items-center">
           <img src="/logo.svg" alt="CareerMind AI" className="h-10 w-auto" />
@@ -116,6 +157,26 @@ export default function Result() {
           <div className="text-2xl font-bold text-purple-300 mb-4">{result.personality_name}</div>
           <p className="text-gray-300 leading-relaxed">{result.description}</p>
         </motion.div>
+
+        {/* New Questions Banner */}
+        {newQuestionsAvailable && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-yellow-500/20 border border-yellow-500/50 rounded-2xl p-4 flex items-center justify-between gap-4"
+          >
+            <div>
+              <p className="text-yellow-400 font-semibold">🆕 New questions added!</p>
+              <p className="text-yellow-300/70 text-sm mt-0.5">Retake quiz for a more accurate result</p>
+            </div>
+            <button
+              onClick={handleRetake}
+              className="px-4 py-2 bg-yellow-500 text-black font-bold rounded-xl hover:bg-yellow-400 transition-all whitespace-nowrap text-sm"
+            >
+              Retake Now
+            </button>
+          </motion.div>
+        )}
 
         {/* Skill Gap Analysis */}
         <motion.div
@@ -200,18 +261,7 @@ export default function Result() {
         >
           {isLoggedIn() && (
             <button
-              onClick={async () => {
-                localStorage.removeItem('result')
-                localStorage.removeItem('guestResult')
-                const token = localStorage.getItem('token')
-                if (token) {
-                  await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/clear-result`, {
-                    method: 'DELETE',
-                    headers: { Authorization: `Bearer ${token}` }
-                  })
-                }
-                navigate('/quiz', { replace: true })
-              }}
+              onClick={handleRetake}
               className="flex-1 py-4 border border-purple-600 rounded-xl font-semibold hover:bg-purple-600/20 transition-all"
             >
               🔄 Retake Quiz
@@ -257,7 +307,7 @@ export default function Result() {
               onClick={() => navigate('/login', { replace: true })}
               className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
             >
-              🔐 Login to Save & Start Journey
+              🔐 Login to Save Result
             </button>
           )}
         </motion.div>

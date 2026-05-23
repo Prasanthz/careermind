@@ -90,6 +90,7 @@ router.post('/questions', auth, async (req, res) => {
       'INSERT INTO questions (question_text, category, option_a, option_b, display_order) VALUES (?, ?, ?, ?, ?)',
       [question_text, category, option_a, option_b, display_order]
     )
+    await db.execute('UPDATE quiz_meta SET questions_updated_at = NOW() WHERE id = 1')
     res.json({ message: 'Question added successfully!' })
   } catch (err) {
     res.status(500).json({ message: 'Server error' })
@@ -104,6 +105,7 @@ router.put('/questions/:id', auth, async (req, res) => {
       'UPDATE questions SET question_text=?, category=?, option_a=?, option_b=?, display_order=? WHERE id=?',
       [question_text, category, option_a, option_b, display_order, req.params.id]
     )
+    await db.execute('UPDATE quiz_meta SET questions_updated_at = NOW() WHERE id = 1')
     res.json({ message: 'Question updated successfully!' })
   } catch (err) {
     res.status(500).json({ message: 'Server error' })
@@ -114,6 +116,7 @@ router.put('/questions/:id', auth, async (req, res) => {
 router.delete('/questions/:id', auth, async (req, res) => {
   try {
     await db.execute('DELETE FROM questions WHERE id = ?', [req.params.id])
+    await db.execute('UPDATE quiz_meta SET questions_updated_at = NOW() WHERE id = 1')
     res.json({ message: 'Question deleted!' })
   } catch (err) {
     res.status(500).json({ message: 'Server error' })

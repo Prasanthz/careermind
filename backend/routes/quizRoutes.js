@@ -21,7 +21,6 @@ router.get('/questions', async (req, res) => {
     const [questions] = await db.execute(
       'SELECT * FROM questions ORDER BY display_order'
     )
-    // Shuffle before sending so every quiz session is different
     res.json({ questions: shuffleArray(questions) })
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message })
@@ -32,14 +31,24 @@ router.get('/questions', async (req, res) => {
 router.get('/latest-result', auth, async (req, res) => {
   try {
     const [rows] = await db.execute(
-      'SELECT result_json FROM test_attempts WHERE user_id = ? ORDER BY taken_at DESC LIMIT 1',
+      'SELECT result_json, taken_at FROM test_attempts WHERE user_id = ? ORDER BY taken_at DESC LIMIT 1',
       [req.user.id]
     )
     if (rows.length > 0) {
-      res.json({ result: JSON.parse(rows[0].result_json) })
+      res.json({ result: JSON.parse(rows[0].result_json), taken_at: rows[0].taken_at })
     } else {
       res.json({ result: null })
     }
+  } catch (err) {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// GET quiz meta — last questions updated time
+router.get('/meta', async (req, res) => {
+  try {
+    const [rows] = await db.execute('SELECT questions_updated_at FROM quiz_meta WHERE id = 1')
+    res.json({ questions_updated_at: rows[0]?.questions_updated_at || null })
   } catch (err) {
     res.status(500).json({ message: 'Server error' })
   }
@@ -68,10 +77,10 @@ router.post('/submit', async (req, res) => {
     )
 
     let answersText = ''
-    questions.forEach((q, i) => {
+    questions.forEach((q) => {
       const ans = answers[q.id]
       const chosen = ans === 'A' ? q.option_a : q.option_b
-      answersText += `Q${i + 1}. ${q.question_text} → ${chosen}\n`
+      answersText += `Q. ${q.question_text} → ${chosen}\n`
     })
 
     const completion = await groq.chat.completions.create({
