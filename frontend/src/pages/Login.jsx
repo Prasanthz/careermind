@@ -54,6 +54,14 @@ export default function Login() {
 
         setTimeout(async () => {
           try {
+            // Check if came from email reminder link
+            const params = new URLSearchParams(window.location.search)
+            const redirect = params.get('redirect')
+            if (redirect) {
+              navigate(`/${redirect}`, { replace: true })
+              return
+            }
+
             const guestResult = localStorage.getItem('guestResult')
 
             const resultRes = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/latest-result`, {

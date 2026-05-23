@@ -14,7 +14,7 @@ const transporter = nodemailer.createTransport({
 })
 
 // ── Use env var for frontend URL so it works in any environment ──
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://careermind-theta.vercel.app'
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://careermind-ai-theta.vercel.app'
 
 // Save reminder preference
 router.post('/set', auth, async (req, res) => {
@@ -89,7 +89,7 @@ cron.schedule('* * * * *', async () => {
             <h2 style="color:#a855f7">🧠 CareerMind AI</h2>
             <p>Hi <strong>${user.name}</strong>! 👋</p>
             <p>It's your daily learning time. Keep your streak alive and stay on track with your career journey!</p>
-            <a href="${FRONTEND_URL}/journey"
+            <a href="${FRONTEND_URL}/login?redirect=journey"
                style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(to right,#7c3aed,#db2777);color:white;border-radius:10px;text-decoration:none;font-weight:bold">
               🚀 Continue My Journey
             </a>

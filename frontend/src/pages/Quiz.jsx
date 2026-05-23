@@ -34,7 +34,6 @@ export default function Quiz({ guestMode = false }){
   const handleAnswer = (answer) => {
     const newAnswers = { ...answers, [current]: answer }
     setAnswers(newAnswers)
-
     if (current < questions.length - 1) {
       setTimeout(() => setCurrent(current + 1), 400)
     }
@@ -44,13 +43,19 @@ export default function Quiz({ guestMode = false }){
     setSubmitting(true)
     try {
       const token = localStorage.getItem('token')
+
+      const answersById = {}
+      Object.keys(answers).forEach(idx => {
+        answersById[questions[idx].id] = answers[idx]
+      })
+
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/submit`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(token && { Authorization: `Bearer ${token}` })
         },
-        body: JSON.stringify({ answers, stage })
+        body: JSON.stringify({ answers: answersById, stage })
       })
 
       const data = await res.json()
@@ -72,7 +77,6 @@ export default function Quiz({ guestMode = false }){
     ? Math.round(((current + 1) / questions.length) * 100)
     : 0
 
-  // Stage Selection Screen
   if (!stageSelected) {
     return (
       <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center px-4">
@@ -86,7 +90,6 @@ export default function Quiz({ guestMode = false }){
             <h1 className="text-2xl font-bold text-purple-400 mt-2">CareerMind AI</h1>
             <p className="text-gray-400 mt-1">First, tell us who you are</p>
           </div>
-
           <div className="bg-[#16213E] rounded-2xl p-8 border border-purple-900/30">
             <h2 className="text-xl font-bold mb-6 text-center">I am a...</h2>
             <div className="space-y-3">
@@ -104,7 +107,6 @@ export default function Quiz({ guestMode = false }){
                 </button>
               ))}
             </div>
-
             <button
               onClick={() => stage && setStageSelected(true)}
               disabled={!stage}
@@ -118,7 +120,6 @@ export default function Quiz({ guestMode = false }){
     )
   }
 
-  // Loading Screen
   if (loading) {
     return (
       <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
@@ -132,11 +133,8 @@ export default function Quiz({ guestMode = false }){
 
   const q = questions[current]
 
-  // Quiz Screen
   return (
     <div className="min-h-screen bg-[#1A1A2E] flex flex-col px-4 py-8">
-
-      {/* Header */}
       <div className="max-w-lg mx-auto w-full mb-8">
         <div className="flex justify-between items-center mb-3">
           <span className="text-purple-400 font-semibold text-sm">
@@ -152,8 +150,6 @@ export default function Quiz({ guestMode = false }){
             </button>
           </div>
         </div>
-
-        {/* Progress Bar */}
         <div className="w-full bg-[#16213E] rounded-full h-3">
           <motion.div
             className="bg-gradient-to-r from-purple-600 to-pink-600 h-3 rounded-full"
@@ -163,7 +159,6 @@ export default function Quiz({ guestMode = false }){
         </div>
       </div>
 
-      {/* Question Card */}
       <div className="max-w-lg mx-auto w-full flex-1 flex flex-col justify-center">
         <AnimatePresence mode="wait">
           <motion.div
@@ -181,8 +176,6 @@ export default function Quiz({ guestMode = false }){
                 {q?.question_text}
               </h2>
             </div>
-
-            {/* Options */}
             <div className="space-y-4">
               {[
                 { label: q?.option_a, value: 'A' },
@@ -205,7 +198,6 @@ export default function Quiz({ guestMode = false }){
           </motion.div>
         </AnimatePresence>
 
-        {/* Navigation */}
         <div className="flex justify-between items-center mt-8">
           <button
             onClick={() => current > 0 && setCurrent(current - 1)}
@@ -234,17 +226,10 @@ export default function Quiz({ guestMode = false }){
           )}
         </div>
 
-        {/* Answer count */}
         <p className="text-center text-gray-500 text-sm mt-4">
           {Object.keys(answers).length} of {questions.length} answered
         </p>
       </div>
     </div>
   )
-} 
-  
-  
-  
-  
-  
-  
+}

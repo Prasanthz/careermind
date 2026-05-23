@@ -69,7 +69,7 @@ router.post('/submit', async (req, res) => {
 
     let answersText = ''
     questions.forEach((q, i) => {
-      const ans = answers[i]
+      const ans = answers[q.id]
       const chosen = ans === 'A' ? q.option_a : q.option_b
       answersText += `Q${i + 1}. ${q.question_text} → ${chosen}\n`
     })

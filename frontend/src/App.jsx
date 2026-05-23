@@ -20,10 +20,12 @@ const isLoggedIn = () => {
 const hasResult = () => !!localStorage.getItem('result')
 const hasGuestResult = () => !!localStorage.getItem('guestResult')
 
-// Auth Route — skip if already logged in
 const AuthRoute = ({ children }) => {
   if (isLoggedIn()) {
-    return <Navigate to={hasResult() ? '/result' : '/quiz'} replace />
+    if (hasResult() || hasGuestResult()) {
+      return <Navigate to="/result" replace />
+    }
+    return <Navigate to="/quiz" replace />
   }
   return children
 }
