@@ -9,7 +9,6 @@ export default function Result() {
   const [showDownload, setShowDownload] = useState(false)
 
   const handleLogout = () => {
-    // Keep guestResult if any, clear everything else
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     localStorage.removeItem('loginExpiry')
@@ -85,24 +84,23 @@ export default function Result() {
             <span className="text-2xl">🧠</span>
             <span className="text-lg font-bold text-purple-400">CareerMind AI</span>
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-sm text-gray-400 border border-purple-900/50 px-4 py-2 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
-          >
-            🚪 Logout
-          </button>
+          <div className="flex items-center gap-2">
+            {JSON.parse(localStorage.getItem('user') || '{}').email === 'prasanths1204@gmail.com' && (
+              <button
+                onClick={() => navigate('/admin')}
+                className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 transition-all"
+              >
+                ⚙️ Admin
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-400 border border-purple-900/50 px-4 py-2 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
+            >
+              🚪 Logout
+            </button>
+          </div>
         </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        {JSON.parse(localStorage.getItem('user') || '{}').email === 'prasanths1204@gmail.com' && (
-          <button
-            onClick={() => navigate('/admin')}
-            className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 transition-all"
-          >
-            ⚙️ Admin
-          </button>
-        )}
       </div>
 
       <div className="max-w-3xl mx-auto px-4 mt-8 space-y-6">
@@ -117,85 +115,12 @@ export default function Result() {
           <p className="text-gray-300 leading-relaxed">{result.description}</p>
         </motion.div>
 
-        {/* Top Traits */}
+        {/* Skill Gap Analysis */}
         <motion.div
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
           className="bg-[#16213E] rounded-2xl p-6 border border-purple-900/30"
         >
-          <h2 className="text-lg font-bold mb-4">⭐ Your Strengths</h2>
-          <div className="flex flex-wrap gap-2">
-            {result.top_traits?.map((trait, i) => (
-              <span key={i} className="bg-purple-600/30 border border-purple-600/50 text-purple-300 px-4 py-2 rounded-full text-sm font-medium">
-                {trait}
-              </span>
-            ))}
-          </div>
-          {result.improve_traits?.length > 0 && (
-            <>
-              <h3 className="text-sm font-semibold text-gray-400 mt-4 mb-2">Areas to Improve</h3>
-              <div className="flex flex-wrap gap-2">
-                {result.improve_traits.map((trait, i) => (
-                  <span key={i} className="bg-orange-600/20 border border-orange-600/40 text-orange-300 px-3 py-1 rounded-full text-sm">
-                    {trait}
-                  </span>
-                ))}
-              </div>
-            </>
-          )}
-        </motion.div>
-
-        {/* Top Careers */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}
-          className="bg-[#16213E] rounded-2xl p-6 border border-purple-900/30"
-        >
-          <h2 className="text-lg font-bold mb-4">💼 Top Career Matches</h2>
-          <div className="space-y-3">
-            {result.top_careers?.map((career, i) => (
-              <div key={i} className="bg-[#1A1A2E] rounded-xl p-4 border border-purple-900/20">
-                <div className="flex justify-between items-start mb-1">
-                  <span className="font-semibold text-white">{career.title}</span>
-                  <span className="text-green-400 text-sm font-medium">{career.salary}</span>
-                </div>
-                <p className="text-gray-400 text-sm">{career.reason}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Courses */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }}
-          className="bg-[#16213E] rounded-2xl p-6 border border-purple-900/30"
-        >
-          <h2 className="text-lg font-bold mb-4">📚 Recommended Courses</h2>
-          <div className="space-y-3">
-            {result.courses?.map((course, i) => (
-                <a
-                key={i}
-                href={course.url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-between bg-[#1A1A2E] rounded-xl p-4 border border-purple-900/20 hover:border-purple-500/50 transition-all group"
-              >
-                <div>
-                  <div className="font-semibold text-white group-hover:text-purple-300 transition-colors">{course.name}</div>
-                  <div className="text-gray-400 text-sm">{course.platform} • {course.duration}</div>
-                </div>
-                <span className={`text-xs px-3 py-1 rounded-full font-medium ${course.free ? 'bg-green-600/30 text-green-400' : 'bg-orange-600/30 text-orange-400'}`}>
-                  {course.free ? 'FREE' : 'Paid'}
-                </span>
-              </a>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Skill Gap */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }}
-          className="bg-[#16213E] rounded-2xl p-6 border border-purple-900/30"
-        >
-          <h2 className="text-lg font-bold mb-4">🛠️ Skill Gap Analysis</h2>
+          <h2 className="text-lg font-bold mb-4">⚡ Skill Gap Analysis</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <h3 className="text-green-400 text-sm font-semibold mb-2">✅ Skills You Have</h3>
@@ -271,15 +196,11 @@ export default function Result() {
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
           className="flex flex-col sm:flex-row gap-3 relative"
         >
-          {/* Retake Quiz — only for logged in */}
           {isLoggedIn() && (
             <button
               onClick={async () => {
-                // Clear local result
                 localStorage.removeItem('result')
                 localStorage.removeItem('guestResult')
-                
-                // Also clear from database if logged in
                 const token = localStorage.getItem('token')
                 if (token) {
                   await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/clear-result`, {
@@ -287,7 +208,6 @@ export default function Result() {
                     headers: { Authorization: `Bearer ${token}` }
                   })
                 }
-                
                 navigate('/quiz', { replace: true })
               }}
               className="flex-1 py-4 border border-purple-600 rounded-xl font-semibold hover:bg-purple-600/20 transition-all"
@@ -296,7 +216,6 @@ export default function Result() {
             </button>
           )}
 
-          {/* Download */}
           <div className="flex-1 relative">
             <button
               onClick={() => setShowDownload(!showDownload)}
@@ -324,7 +243,6 @@ export default function Result() {
             )}
           </div>
 
-          {/* Start Journey or Login to Save & Start Journey */}
           {isLoggedIn() ? (
             <button
               onClick={() => navigate('/journey')}
@@ -337,11 +255,13 @@ export default function Result() {
               onClick={() => navigate('/login', { replace: true })}
               className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
             >
-              🔐 Login to Start Journey
+              🔐 Login to Save & Start Journey
             </button>
           )}
-
         </motion.div>
+
+        {/* ✅ Review Submit — only shows for logged-in users */}
+        <ReviewSubmit />
 
       </div>
     </div>

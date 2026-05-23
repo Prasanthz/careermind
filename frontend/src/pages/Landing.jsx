@@ -6,14 +6,6 @@ import LandingReviews from '../components/LandingReviews'
 export default function Landing() {
   const navigate = useNavigate()
   const [testedCount, setTestedCount] = useState(null)
-
-  useEffect(() => {
-    fetch(`${import.meta.env.VITE_API_URL}/api/stats`)
-      .then(r => r.json())
-      .then(data => setTestedCount(data.tested))
-      .catch(() => setTestedCount(null))
-  }, [])
-
   const [questionCount, setQuestionCount] = useState(25)
 
   useEffect(() => {
@@ -82,43 +74,29 @@ export default function Landing() {
         </div>
       </nav>
 
-      {/* Hero Section */}
+      {/* Hero */}
       <section className="pt-32 pb-20 px-4 text-center relative overflow-hidden">
-        {/* Background glow */}
         <div className="absolute top-20 left-1/2 -translate-x-1/2 w-96 h-96 bg-purple-600/20 rounded-full blur-3xl pointer-events-none" />
-
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7 }}>
           <span className="inline-block bg-purple-600/20 text-purple-400 px-4 py-2 rounded-full text-sm font-medium mb-6 border border-purple-600/30">
             🚀 AI-Powered Career Guidance
           </span>
-
           <h1 className="text-4xl md:text-6xl font-extrabold mb-6 leading-tight">
             Discover Who You Are.<br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400">
               Find Where You Belong.
             </span>
           </h1>
-
           <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto mb-10">
             Take a {questionCount}-question personality test and let our AI match you with the perfect career path, courses, and roadmap — completely free.
           </p>
-
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <button
-              onClick={() => {
-                localStorage.removeItem('result')
-                localStorage.removeItem('guestResult')
-                navigate('/quiz')
-              }}
+              onClick={() => { localStorage.removeItem('result'); localStorage.removeItem('guestResult'); navigate('/quiz') }}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg shadow-purple-900/50"
             >
               🎯 Take Free Test Now
             </button>
-
             <button
               onClick={() => navigate('/sample-result')}
               className="w-full sm:w-auto px-8 py-4 border border-purple-600 rounded-xl text-lg font-semibold hover:bg-purple-600/20 transition-all"
@@ -126,14 +104,12 @@ export default function Landing() {
               View Sample Result →
             </button>
           </div>
-
-          {/* Stats */}
           <div className="flex flex-wrap justify-center gap-8 mt-14">
             {[
               { num: testedCount !== null ? testedCount.toLocaleString() : '...', label: 'People Tested' },
               { num: '16', label: 'Personality Types' },
               { num: '48+', label: 'Career Paths' },
-              { num: '100%', label: 'Free Test' },
+              { num: '100%', label: 'Free Forever' },
             ].map((stat, i) => (
               <div key={i} className="text-center">
                 <div className="text-3xl font-extrabold text-purple-400">{stat.num}</div>
@@ -147,18 +123,11 @@ export default function Landing() {
       {/* Who is it for */}
       <section className="py-20 px-4 bg-[#16213E]">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">
-            Built For <span className="text-purple-400">Everyone</span>
-          </h2>
+          <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">Built For <span className="text-purple-400">Everyone</span></h2>
           <p className="text-gray-400 text-center mb-12">From school students to working professionals</p>
-
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {userTypes.map((u, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
+              <motion.div key={i} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
                 className="bg-[#1A1A2E] p-6 rounded-xl border border-purple-900/30 hover:border-purple-500/50 transition-all hover:scale-105 cursor-pointer"
               >
                 <div className="text-3xl mb-3">{u.icon}</div>
@@ -173,18 +142,11 @@ export default function Landing() {
       {/* How it works */}
       <section className="py-20 px-4">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">
-            How It <span className="text-purple-400">Works</span>
-          </h2>
+          <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">How It <span className="text-purple-400">Works</span></h2>
           <p className="text-gray-400 text-center mb-12">Get your results in under 5 minutes</p>
-
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {steps.map((step, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.15 }}
+              <motion.div key={i} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.15 }}
                 className="text-center relative"
               >
                 <div className="w-16 h-16 bg-purple-600/20 border border-purple-600/50 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -204,18 +166,11 @@ export default function Landing() {
       {/* Features */}
       <section className="py-20 px-4 bg-[#16213E]">
         <div className="max-w-6xl mx-auto">
-          <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">
-            Everything You <span className="text-purple-400">Need</span>
-          </h2>
+          <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">Everything You <span className="text-purple-400">Need</span></h2>
           <p className="text-gray-400 text-center mb-12">One platform for complete career guidance</p>
-
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {features.map((f, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
+              <motion.div key={i} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
                 className="bg-[#1A1A2E] p-6 rounded-xl border border-purple-900/30 hover:border-purple-500/50 transition-all"
               >
                 <div className="text-3xl mb-4">{f.icon}</div>
@@ -227,7 +182,10 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* CTA Section */}
+      {/* ✅ Reviews section — shows when admin has featured reviews */}
+      <LandingReviews />
+
+      {/* CTA */}
       <section className="py-20 px-4 text-center">
         <div className="max-w-2xl mx-auto">
           <motion.div
@@ -238,17 +196,10 @@ export default function Landing() {
             <h2 className="text-3xl md:text-4xl font-bold mb-4">
               Ready to Find Your <span className="text-purple-400">Perfect Career?</span>
             </h2>
-            <p className="text-gray-400 mb-8">
-              Join thousands of people who discovered their true calling
-            </p>
-
+            <p className="text-gray-400 mb-8">Join thousands of people who discovered their true calling</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button
-                onClick={() => {
-                  localStorage.removeItem('result')
-                  localStorage.removeItem('guestResult')
-                  navigate('/quiz')
-                }}
+                onClick={() => { localStorage.removeItem('result'); localStorage.removeItem('guestResult'); navigate('/quiz') }}
                 className="px-10 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg"
               >
                 🚀 Start Free Test Now
@@ -257,26 +208,13 @@ export default function Landing() {
                 onClick={() => navigate('/login')}
                 className="px-10 py-4 border border-purple-600 rounded-xl text-lg font-semibold hover:bg-purple-600/20 transition-all"
               >
-                🔐 Login / Register
+                🔐 Login
               </button>
             </div>
-
-            <p className="text-gray-500 text-sm mt-4">
-              No signup required • Takes 5 minutes • 100% Free
-            </p>
           </motion.div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-8 px-4 border-t border-purple-900/30 text-center text-gray-500 text-sm">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <span className="text-xl">🧠</span>
-          <span className="font-semibold text-purple-400">CareerMind AI</span>
-        </div>
-        <p>© 2026 CareerMind AI. Helping people find their perfect career.</p>
-      </footer>
-      <LandingReviews />
     </div>
   )
 }
