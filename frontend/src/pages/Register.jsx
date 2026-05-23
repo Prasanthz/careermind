@@ -59,6 +59,7 @@ export default function Register() {
       if (data.token) {
         localStorage.setItem('token', data.token)
         localStorage.setItem('user', JSON.stringify(data.user))
+        localStorage.setItem('loginExpiry', 'never')  // ADD THIS
         setSuccess('✅ Account created! Redirecting...')
         setTimeout(() => navigate('/quiz', { replace: true }), 1500)
       } else {

@@ -40,6 +40,7 @@ export default function Login() {
         // Save token and user
         localStorage.setItem('token', data.token)
         localStorage.setItem('user', JSON.stringify(data.user))
+        localStorage.setItem('loginExpiry', 'never')  // ADD THIS
 
         // Mobile = never expire, PC = 24 hrs
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
