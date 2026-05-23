@@ -66,7 +66,7 @@ export default function Landing() {
               Login
             </button>
             <button
-              onClick={() => navigate('/quiz')}
+              onClick={() => isLoggedIn() ? navigate('/quiz') : navigate('/login')}
               className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-700 transition-all font-semibold"
             >
               Take Free Test
