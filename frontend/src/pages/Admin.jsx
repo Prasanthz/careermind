@@ -7,6 +7,7 @@ export default function Admin() {
   const [activeTab, setActiveTab] = useState('analytics')
   const [analytics, setAnalytics] = useState(null)
   const [users, setUsers] = useState([])
+  const [userPersonalities, setUserPersonalities] = useState({})
   const [questions, setQuestions] = useState([])
   const [reviews, setReviews] = useState([])
   const [loading, setLoading] = useState(true)
@@ -21,17 +22,41 @@ export default function Admin() {
   const fetchAll = async () => {
     setLoading(true)
     try {
-      const [aRes, uRes, qRes, rRes] = await Promise.all([
+      const [aRes, uRes, qRes, rRes, attRes] = await Promise.all([
         fetch(`${import.meta.env.VITE_API_URL}/api/admin/analytics`, { headers: authHeaders }),
         fetch(`${import.meta.env.VITE_API_URL}/api/admin/users`, { headers: authHeaders }),
         fetch(`${import.meta.env.VITE_API_URL}/api/admin/questions`, { headers: authHeaders }),
         fetch(`${import.meta.env.VITE_API_URL}/api/reviews/all`, { headers: authHeaders }),
+        fetch(`${import.meta.env.VITE_API_URL}/api/admin/attempts`, { headers: authHeaders }),
       ])
-      const [a, u, q, r] = await Promise.all([aRes.json(), uRes.json(), qRes.json(), rRes.json()])
+      const [a, u, q, r, att] = await Promise.all([
+        aRes.json(), uRes.json(), qRes.json(), rRes.json(), attRes.json()
+      ])
       setAnalytics(a)
       setUsers(u.users || [])
       setQuestions(q.questions || [])
       setReviews(r.reviews || [])
+
+      // Build userId → latest personality map
+      const personalityMap = {}
+      const attempts = att.attempts || []
+      attempts.forEach(attempt => {
+        try {
+          const parsed = typeof attempt.result_json === 'string'
+            ? JSON.parse(attempt.result_json)
+            : attempt.result_json
+          // attempts are ORDER BY taken_at DESC, so first one is latest
+          const userEmail = attempt.email
+          if (!personalityMap[userEmail]) {
+            personalityMap[userEmail] = {
+              type: parsed.personality_type,
+              name: parsed.personality_name
+            }
+          }
+        } catch (e) {}
+      })
+      setUserPersonalities(personalityMap)
+
     } catch (e) {
       console.error(e)
     }
@@ -76,7 +101,6 @@ export default function Admin() {
     fetchAll()
   }
 
-  // ✅ FIXED: uses PUT /api/reviews/:id/feature (matches backend)
   const featureReview = async (id, featured) => {
     await fetch(`${import.meta.env.VITE_API_URL}/api/reviews/${id}/feature`, {
       method: 'PUT',
@@ -93,6 +117,25 @@ export default function Admin() {
     jobseeker: 'Job Seeker',
     switcher: 'Career Switcher',
     professional: 'Working Professional',
+  }
+
+  const personalityColors = {
+    INTJ: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    INTP: 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30',
+    ENTJ: 'bg-red-500/20 text-red-400 border-red-500/30',
+    ENTP: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+    INFJ: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    INFP: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+    ENFJ: 'bg-green-500/20 text-green-400 border-green-500/30',
+    ENFP: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    ISTJ: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+    ISFJ: 'bg-teal-500/20 text-teal-400 border-teal-500/30',
+    ESTJ: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+    ESFJ: 'bg-lime-500/20 text-lime-400 border-lime-500/30',
+    ISTP: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+    ISFP: 'bg-rose-500/20 text-rose-400 border-rose-500/30',
+    ESTP: 'bg-violet-500/20 text-violet-400 border-violet-500/30',
+    ESFP: 'bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/30',
   }
 
   const tabs = [
@@ -199,21 +242,43 @@ export default function Admin() {
               <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
                 <h2 className="font-bold text-lg mb-4">👥 All Users ({users.length})</h2>
                 <div className="space-y-3">
-                  {users.map(u => (
-                    <div key={u.id} className="bg-[#1A1A2E] rounded-xl p-4 border border-purple-900/20 flex justify-between items-center">
-                      <div>
-                        <div className="font-semibold text-white">{u.name}</div>
-                        <div className="text-gray-400 text-xs">{u.email}</div>
-                        <div className="text-gray-500 text-xs mt-0.5">{stageLabels[u.stage] || u.stage} · Age {u.age}</div>
+                  {users.map(u => {
+                    const personality = userPersonalities[u.email]
+                    const colorClass = personality
+                      ? (personalityColors[personality.type] || 'bg-purple-500/20 text-purple-400 border-purple-500/30')
+                      : null
+                    return (
+                      <div key={u.id} className="bg-[#1A1A2E] rounded-xl p-4 border border-purple-900/20 flex justify-between items-center">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <div className="font-semibold text-white">{u.name}</div>
+                            {personality ? (
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${colorClass}`}>
+                                {personality.type}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-gray-600 px-2 py-0.5 rounded-full border border-gray-700">
+                                No test yet
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-gray-400 text-xs mt-0.5">{u.email}</div>
+                          <div className="text-gray-500 text-xs mt-0.5">
+                            {stageLabels[u.stage] || u.stage} · Age {u.age}
+                            {personality && (
+                              <span className="text-gray-500"> · {personality.name}</span>
+                            )}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => deleteUser(u.id)}
+                          className="text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-xs hover:bg-red-500/20 transition-all shrink-0"
+                        >
+                          Delete
+                        </button>
                       </div>
-                      <button
-                        onClick={() => deleteUser(u.id)}
-                        className="text-red-400 border border-red-500/30 px-3 py-1.5 rounded-lg text-xs hover:bg-red-500/20 transition-all"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </motion.div>
@@ -305,7 +370,7 @@ export default function Admin() {
                 </p>
 
                 {reviews.length === 0 ? (
-                  <p className="text-gray-500 text-center py-8">No reviews yet. Users can submit from the Result page.</p>
+                  <p className="text-gray-500 text-center py-8">No reviews yet.</p>
                 ) : (
                   <div className="space-y-4">
                     {reviews.map(r => (
@@ -342,8 +407,6 @@ export default function Admin() {
                               </div>
                             </div>
                           </div>
-
-                          {/* ✅ FIXED: single toggle button using PUT /:id/feature */}
                           <div className="shrink-0">
                             {r.featured ? (
                               <button
