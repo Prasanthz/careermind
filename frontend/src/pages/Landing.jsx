@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { useState, useEffect } from 'react'
+import LandingReviews from '../components/LandingReviews'
 
 export default function Landing() {
   const navigate = useNavigate()
@@ -275,7 +276,7 @@ export default function Landing() {
         </div>
         <p>© 2026 CareerMind AI. Helping people find their perfect career.</p>
       </footer>
-
+      <LandingReviews />
     </div>
   )
 }
