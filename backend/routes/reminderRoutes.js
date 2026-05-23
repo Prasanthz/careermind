@@ -42,6 +42,23 @@ router.get('/get', auth, async (req, res) => {
   }
 })
 
+// Test email — remove after testing
+router.get('/test-email', auth, async (req, res) => {
+  try {
+    const [rows] = await db.execute('SELECT email, name FROM users WHERE id = ?', [req.user.id])
+    const user = rows[0]
+    await transporter.sendMail({
+      from: `"CareerMind AI" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: '🚀 Test - CareerMind Daily Reminder',
+      html: `<p>Hi ${user.name}! This is a test reminder from CareerMind AI. 🎯</p>`
+    })
+    res.json({ message: `Test email sent to ${user.email}` })
+  } catch (err) {
+    res.status(500).json({ message: 'Email failed', error: err.message })
+  }
+})
+
 // Cron job — runs every minute, checks who needs reminder
 cron.schedule('* * * * *', async () => {
   try {
