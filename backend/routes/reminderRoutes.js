@@ -63,7 +63,10 @@ router.get('/test-email', auth, async (req, res) => {
 cron.schedule('* * * * *', async () => {
   try {
     const now = new Date()
-    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+    // NEW - convert UTC to IST (UTC+5:30)
+    const istOffset = 5.5 * 60 * 60 * 1000
+    const ist = new Date(now.getTime() + istOffset)
+    const currentTime = `${String(ist.getHours()).padStart(2, '0')}:${String(ist.getMinutes()).padStart(2, '0')}`
 
     const [users] = await db.execute(
       `SELECT r.user_id, r.reminder_time, u.email, u.name
