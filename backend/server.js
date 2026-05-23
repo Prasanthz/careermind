@@ -20,6 +20,7 @@ app.use('/api/auth', require('./routes/authRoutes'))
 app.use('/api/quiz', require('./routes/quizRoutes'))
 app.use('/api/result', require('./routes/resultRoutes'))
 app.use('/api/admin', require('./routes/adminRoutes'))
+app.use('/api/stats', require('./routes/statsRoutes'))
 
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {

@@ -1,8 +1,17 @@
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
+import { useState, useEffect } from 'react'
 
 export default function Landing() {
   const navigate = useNavigate()
+  const [testedCount, setTestedCount] = useState(null)
+
+  useEffect(() => {
+    fetch(`${import.meta.env.VITE_API_URL}/api/stats`)
+      .then(r => r.json())
+      .then(data => setTestedCount(data.tested))
+      .catch(() => setTestedCount(null))
+  }, [])
 
   const features = [
     { icon: '🧠', title: 'AI-Powered Analysis', desc: 'Advanced AI analyzes your personality with scientific accuracy' },
@@ -108,9 +117,9 @@ export default function Landing() {
           {/* Stats */}
           <div className="flex flex-wrap justify-center gap-8 mt-14">
             {[
-              { num: '10,000+', label: 'People Tested' },
+              { num: testedCount !== null ? testedCount.toLocaleString() : '...', label: 'People Tested' },
               { num: '16', label: 'Personality Types' },
-              { num: '50+', label: 'Career Paths' },
+              { num: '48+', label: 'Career Paths' },
               { num: '100%', label: 'Free Forever' },
             ].map((stat, i) => (
               <div key={i} className="text-center">
@@ -220,7 +229,6 @@ export default function Landing() {
               Join thousands of people who discovered their true calling
             </p>
 
-            {/* Two buttons — guest or login */}
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button
                 onClick={() => {
