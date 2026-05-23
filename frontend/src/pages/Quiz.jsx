@@ -241,4 +241,4 @@ export default function Quiz({ guestMode = false }){
       </div>
     </div>
   )
-}
+} 
