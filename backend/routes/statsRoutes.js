@@ -4,10 +4,14 @@ const db = require('../config/db')
 
 router.get('/', async (req, res) => {
   try {
-    const [rows] = await db.query('SELECT COUNT(*) as count FROM users')
-    res.json({ tested: rows[0].count })
+    const [userRows] = await db.query('SELECT COUNT(*) as count FROM users')
+    const [questionRows] = await db.query('SELECT COUNT(*) as count FROM questions')
+    res.json({ 
+      tested: userRows[0].count,
+      questionCount: questionRows[0].count
+    })
   } catch (err) {
-    res.json({ tested: 0 })
+    res.json({ tested: 0, questionCount: 25 })
   }
 })
 
