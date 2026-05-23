@@ -5,8 +5,7 @@ require('dotenv').config()
 const app = express()
 
 app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true
+  origin: ['http://localhost:5173', 'https://careermind-eight.vercel.app']
 }))
 app.use(express.json())
 
