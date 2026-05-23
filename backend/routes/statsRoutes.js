@@ -7,7 +7,6 @@ router.get('/', async (req, res) => {
     const [rows] = await db.query('SELECT COUNT(*) as count FROM users')
     res.json({ tested: rows[0].count })
   } catch (err) {
-    console.error('Stats error:', err)
     res.json({ tested: 0 })
   }
 })
