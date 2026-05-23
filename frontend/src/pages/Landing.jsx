@@ -60,13 +60,13 @@ export default function Landing() {
           <img src="/logo.svg" alt="CareerMind AI" className="h-10 w-auto" />
           <div className="flex gap-3">
             <button
-              onClick={() => isLoggedIn() ? navigate('/result') : navigate('/login')}
+              onClick={() => navigate('/login')}
               className="px-4 py-2 text-purple-400 border border-purple-400 rounded-lg hover:bg-purple-400 hover:text-white transition-all"
             >
               Login
             </button>
             <button
-              onClick={() => navigate('/login')}
+              onClick={() => isLoggedIn() ? navigate('/quiz') : navigate('/login')}
               className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-700 transition-all font-semibold"
             >
               Take Free Test
