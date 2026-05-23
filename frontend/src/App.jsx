@@ -7,6 +7,7 @@ import Quiz from './pages/Quiz'
 import Result from './pages/Result'
 import Journey from './pages/Journey'
 import Admin from './pages/Admin'
+import Profile from './pages/Profile'
 
 const isLoggedIn = () => {
   const token = localStorage.getItem('token')
@@ -37,23 +38,19 @@ const QuizRoute = () => {
 
 // Result Route
 const ResultRoute = () => {
-  // Logged in user
   if (isLoggedIn()) {
     if (!hasResult()) return <Navigate to="/quiz" replace />
     return <Result />
   }
-  // Guest with result
   if (hasGuestResult()) {
     return <Result />
   }
-  // No result at all → go to landing
   return <Navigate to="/" replace />
 }
 
 // Journey Route — must be logged in
 const JourneyRoute = () => {
   if (!isLoggedIn()) {
-    // Guest trying to access journey → go to login
     return <Navigate to="/login" replace />
   }
   return <Journey />
@@ -91,15 +88,21 @@ function App() {
         {/* Journey — logged in only */}
         <Route path="/journey" element={<JourneyRoute />} />
 
+        {/* Profile — logged in only */}
+        <Route path="/profile" element={
+          <ProtectedRoute><Profile /></ProtectedRoute>
+        } />
+
         {/* Admin */}
         <Route path="/admin" element={
           <ProtectedRoute><Admin /></ProtectedRoute>
         } />
 
+        {/* Sample result */}
+        <Route path="/sample-result" element={<SampleResult />} />
+
         {/* Unknown → landing */}
         <Route path="*" element={<Navigate to="/" replace />} />
-
-        <Route path="/sample-result" element={<SampleResult />} />
       </Routes>
     </BrowserRouter>
   )
