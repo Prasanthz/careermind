@@ -103,7 +103,7 @@ export default function Landing() {
           </h1>
 
           <p className="text-gray-400 text-lg md:text-xl max-w-2xl mx-auto mb-10">
-            Take a 25-question personality test and let our AI match you with the perfect career path, courses, and roadmap — completely free.
+            Take a {questionCount}-question personality test and let our AI match you with the perfect career path, courses, and roadmap — completely free.
           </p>
 
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
