@@ -102,7 +102,7 @@ export default function Landing() {
               🎯 Take Free Test Now
             </button>
             <button
-              onClick={() => navigate('/quiz')}
+              onClick={() => navigate('/sample-result')}
               className="w-full sm:w-auto px-8 py-4 border border-purple-600 rounded-xl text-lg font-semibold hover:bg-purple-600/20 transition-all"
             >
               View Sample Result →
