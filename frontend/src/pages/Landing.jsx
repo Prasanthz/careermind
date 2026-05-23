@@ -96,7 +96,7 @@ export default function Landing() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <button
-              onClick={() => isLoggedIn() ? navigate('/result') : navigate('/login')}
+              onClick={() => navigate('/quiz')}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg shadow-purple-900/50"
             >
               🎯 Take Free Test Now
