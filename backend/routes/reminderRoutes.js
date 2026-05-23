@@ -13,6 +13,9 @@ const transporter = nodemailer.createTransport({
   }
 })
 
+// ── Use env var for frontend URL so it works in any environment ──
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://careermind-theta.vercel.app'
+
 // Save reminder preference
 router.post('/set', auth, async (req, res) => {
   const { enabled, time } = req.body
@@ -42,7 +45,7 @@ router.get('/get', auth, async (req, res) => {
   }
 })
 
-// Test email — remove after testing
+// Test email
 router.get('/test-email', auth, async (req, res) => {
   try {
     const [rows] = await db.execute('SELECT email, name FROM users WHERE id = ?', [req.user.id])
@@ -63,7 +66,7 @@ router.get('/test-email', auth, async (req, res) => {
 cron.schedule('* * * * *', async () => {
   try {
     const now = new Date()
-    // NEW - convert UTC to IST (UTC+5:30)
+    // Convert UTC to IST (UTC+5:30)
     const istOffset = 5.5 * 60 * 60 * 1000
     const ist = new Date(now.getTime() + istOffset)
     const currentTime = `${String(ist.getHours()).padStart(2, '0')}:${String(ist.getMinutes()).padStart(2, '0')}`
@@ -86,7 +89,7 @@ cron.schedule('* * * * *', async () => {
             <h2 style="color:#a855f7">🧠 CareerMind AI</h2>
             <p>Hi <strong>${user.name}</strong>! 👋</p>
             <p>It's your daily learning time. Keep your streak alive and stay on track with your career journey!</p>
-            <a href="https://careermind-eight.vercel.app/journey"
+            <a href="${FRONTEND_URL}/journey"
                style="display:inline-block;margin-top:16px;padding:12px 24px;background:linear-gradient(to right,#7c3aed,#db2777);color:white;border-radius:10px;text-decoration:none;font-weight:bold">
               🚀 Continue My Journey
             </a>

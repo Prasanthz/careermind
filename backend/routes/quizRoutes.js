@@ -5,13 +5,24 @@ const Groq = require('groq-sdk')
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 const auth = require('../middleware/authMiddleware')
 
-// GET all questions
+// ── Helper: Fisher-Yates shuffle ──────────────────────────────
+function shuffleArray(arr) {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+// GET all questions — shuffled every time
 router.get('/questions', async (req, res) => {
   try {
     const [questions] = await db.execute(
       'SELECT * FROM questions ORDER BY display_order'
     )
-    res.json({ questions })
+    // Shuffle before sending so every quiz session is different
+    res.json({ questions: shuffleArray(questions) })
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message })
   }

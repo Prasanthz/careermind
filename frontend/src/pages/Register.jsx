@@ -43,10 +43,15 @@ export default function Register() {
     }
 
     try {
+      // ── Read guest result taken before registering ──
+      const guestResultRaw = localStorage.getItem('guestResult')
+      const guestResult = guestResultRaw ? JSON.parse(guestResultRaw) : null
+
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        // ── Send guestResult to backend so it gets saved under the new account ──
+        body: JSON.stringify({ ...form, guestResult })
       })
 
       const data = await res.json()
@@ -61,8 +66,19 @@ export default function Register() {
         localStorage.setItem('token', data.token)
         localStorage.setItem('user', JSON.stringify(data.user))
         localStorage.setItem('loginExpiry', 'never')
-        setSuccess('✅ Account created! Redirecting...')
-        setTimeout(() => navigate('/quiz', { replace: true }), 1500)
+
+        if (guestResult) {
+          // ── Move guest result to the logged-in result slot ──
+          localStorage.setItem('result', JSON.stringify(guestResult))
+          // ── Clean up guest result ──
+          localStorage.removeItem('guestResult')
+          setSuccess('✅ Account created! Taking you to your result...')
+          // ── Go straight to result page — their test is already there ──
+          setTimeout(() => navigate('/result', { replace: true }), 1500)
+        } else {
+          setSuccess('✅ Account created! Redirecting...')
+          setTimeout(() => navigate('/quiz', { replace: true }), 1500)
+        }
       } else {
         setError(data.message || 'Registration failed')
       }
