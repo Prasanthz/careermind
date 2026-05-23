@@ -6,6 +6,7 @@ export default function Login() {
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -37,12 +38,10 @@ export default function Login() {
       }
 
       if (data.token) {
-        // Save token and user
         localStorage.setItem('token', data.token)
         localStorage.setItem('user', JSON.stringify(data.user))
-        localStorage.setItem('loginExpiry', 'never')  // ADD THIS
+        localStorage.setItem('loginExpiry', 'never')
 
-        // Mobile = never expire, PC = 24 hrs
         const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
         if (isMobile) {
           localStorage.setItem('loginExpiry', 'never')
@@ -53,10 +52,8 @@ export default function Login() {
 
         setSuccess('✅ Login successful! Redirecting...')
 
-        // Check if already has result
         setTimeout(async () => {
           try {
-            // Check if guest had already taken quiz
             const guestResult = localStorage.getItem('guestResult')
 
             const resultRes = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/latest-result`, {
@@ -65,17 +62,14 @@ export default function Login() {
             const resultData = await resultRes.json()
 
             if (resultData.result) {
-              // Has result in DB → use it
               localStorage.setItem('result', JSON.stringify(resultData.result))
               localStorage.removeItem('guestResult')
               navigate('/result', { replace: true })
             } else if (guestResult) {
-              // Had guest result → save it as logged in result
               localStorage.setItem('result', guestResult)
               localStorage.removeItem('guestResult')
               navigate('/result', { replace: true })
             } else {
-              // No result anywhere → go to quiz
               navigate('/quiz', { replace: true })
             }
           } catch {
@@ -112,14 +106,12 @@ export default function Login() {
         <div className="bg-[#16213E] rounded-2xl p-8 border border-purple-900/30">
           <h2 className="text-xl font-bold mb-6">Login to your account</h2>
 
-          {/* Error */}
           {error && (
             <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg mb-4 text-sm">
               {error}
             </div>
           )}
 
-          {/* Success */}
           {success && (
             <div className="bg-green-500/20 border border-green-500/50 text-green-400 px-4 py-3 rounded-lg mb-4 text-sm">
               {success}
@@ -142,14 +134,36 @@ export default function Login() {
           {/* Password */}
           <div className="mb-6">
             <label className="text-gray-400 text-sm mb-1 block">Password</label>
-            <input
-              type="password"
-              placeholder="••••••••"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSubmit()}
-              className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 transition-all"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSubmit()}
+                className="w-full bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 pr-12 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 transition-all"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-400 transition-colors"
+              >
+                {showPassword ? (
+                  // Eye-off icon
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+                    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                    <line x1="1" y1="1" x2="23" y2="23"/>
+                  </svg>
+                ) : (
+                  // Eye icon
+                  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                    <circle cx="12" cy="12" r="3"/>
+                  </svg>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Login Button */}
