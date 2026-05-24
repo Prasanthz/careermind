@@ -358,8 +358,21 @@ export default function Journey() {
             <p className="text-purple-300 text-sm">{journey.chosen_career}</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowReminder(!showReminder)}
+          {/* Profile avatar */}
+          <button
+            onClick={() => navigate('/profile')}
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center font-bold text-sm border-2 border-purple-500 overflow-hidden"
+          >
+            {(() => {
+              const u = JSON.parse(localStorage.getItem('user') || '{}')
+              return u?.profile_pic
+                ? <img src={u.profile_pic} alt="profile" className="w-full h-full object-cover" />
+                : (u?.name?.[0]?.toUpperCase() || '?')
+            })()}
+          </button>
+
+          <button
+            onClick={() => setShowReminder(!showReminder)}
               className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all"
             >
               🔔 Reminder
@@ -369,6 +382,17 @@ export default function Journey() {
               className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all"
             >
               🔄 Change
+            </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem('token')
+                localStorage.removeItem('user')
+                localStorage.removeItem('loginExpiry')
+                navigate('/login', { replace: true })
+              }}
+              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
+            >
+              🚪
             </button>
           </div>
         </div>
