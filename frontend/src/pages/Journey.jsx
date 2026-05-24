@@ -107,8 +107,19 @@ export default function Journey() {
             // No journey in DB — check localStorage
             const stored = localStorage.getItem(localKey)
             if (stored) {
-              try { applyJourney(JSON.parse(stored)) }
-              catch { setShowInitialPicker(true) }
+              try {
+                const parsed = JSON.parse(stored)
+                applyJourney(parsed)
+                // Auto-save existing localStorage journey to DB
+                fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                  },
+                  body: JSON.stringify({ journey: parsed })
+                }).catch(() => {})
+              } catch { setShowInitialPicker(true) }
             } else {
               setShowInitialPicker(true)
             }
