@@ -81,7 +81,9 @@ export default function Journey() {
   // ── Load state ─────────────────────────────────────────────────────────────
   // FIX: instead of navigate('/result') when no journey, show CareerPicker
   useEffect(() => {
-    const stored = localStorage.getItem('journeyData')
+    const user = JSON.parse(localStorage.getItem('user') || '{}')
+    const key = user?.id ? `journeyData_${user.id}` : 'journeyData'
+    const stored = localStorage.getItem(key)
     if (!stored) {
       setShowInitialPicker(true)
       return
@@ -91,7 +93,7 @@ export default function Journey() {
       if (!parsed.roadmap || !Array.isArray(parsed.roadmap)) throw new Error('bad')
       setJourney(parsed)
     } catch {
-      localStorage.removeItem('journeyData')
+      localStorage.removeItem(key)
       setShowInitialPicker(true)
       return
     }
@@ -279,7 +281,9 @@ export default function Journey() {
         daily_schedule: journeyData.daily_schedule,
         started_at: new Date().toISOString(),
       }
-      localStorage.setItem('journeyData', JSON.stringify(payload))
+      const user = JSON.parse(localStorage.getItem('user') || '{}')
+      const key = user?.id ? `journeyData_${user.id}` : 'journeyData'
+      localStorage.setItem(key, JSON.stringify(payload))
       localStorage.removeItem('completedTasks')
       localStorage.setItem('journeyPoints', '0')
       localStorage.setItem('journeyStreak', '0')
