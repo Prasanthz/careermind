@@ -223,7 +223,7 @@ export default function Landing() {
         <div className="flex justify-center mb-4">
           <img src="/logo.svg" alt="CareerMind AI" className="h-8 w-auto opacity-70" />
         </div>
-        <p className="text-gray-500 text-sm">© 2025 CareerMind AI. Built with ❤️ for career seekers everywhere.</p>
+        <p className="text-gray-500 text-sm">© 2026 CareerMind AI — Intelligent Career Guidance Platform.</p>
       </footer>
 
     </div>
