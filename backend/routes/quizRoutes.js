@@ -284,4 +284,34 @@ Return this exact JSON structure:
   }
 })
 
+// GET saved journey
+router.get('/journey', auth, async (req, res) => {
+  try {
+    const [rows] = await db.execute(
+      'SELECT journey_data FROM journeys WHERE user_id = ?',
+      [req.user.id]
+    )
+    if (rows.length === 0) return res.json({ journey: null })
+    res.json({ journey: JSON.parse(rows[0].journey_data) })
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message })
+  }
+})
+
+// POST save journey
+router.post('/save-journey', auth, async (req, res) => {
+  try {
+    const { journey } = req.body
+    await db.execute(
+      `INSERT INTO journeys (user_id, journey_data)
+       VALUES (?, ?)
+       ON DUPLICATE KEY UPDATE journey_data = ?, updated_at = NOW()`,
+      [req.user.id, JSON.stringify(journey), JSON.stringify(journey)]
+    )
+    res.json({ message: 'Journey saved' })
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message })
+  }
+})
+
 module.exports = router
