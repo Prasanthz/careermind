@@ -4,479 +4,743 @@ import { motion, AnimatePresence } from 'framer-motion'
 import CareerPicker from '../components/CareerPicker'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const getToken = () => localStorage.getItem('token')
-
-const authHeaders = () => ({
-  'Content-Type': 'application/json',
-  Authorization: `Bearer ${getToken()}`,
-})
-
-// Assign each task a real calendar date starting from journeyStartDate
-function buildDayMap(phases, startDate) {
-  const map = {} // dayIndex (0-based) → Date string YYYY-MM-DD
-  let dayIndex = 0
-  phases.forEach((phase) => {
-    phase.tasks.forEach(() => {
-      const d = new Date(startDate)
-      d.setDate(d.getDate() + dayIndex)
-      map[dayIndex] = d.toISOString().split('T')[0]
-      dayIndex++
-    })
-  })
-  return map
+function daysSince(isoDate) {
+  if (!isoDate) return 0
+  const start = new Date(isoDate)
+  start.setHours(0, 0, 0, 0)
+  const now = new Date()
+  now.setHours(0, 0, 0, 0)
+  return Math.floor((now - start) / (1000 * 60 * 60 * 24))
 }
 
-function todayStr() {
+function getTodayKey() {
   return new Date().toISOString().split('T')[0]
 }
 
-// ── Badge definitions ─────────────────────────────────────────────────────────
-const BADGE_DEFS = [
-  { id: 'first_step',   label: 'First Step',   icon: '👣', req: 1,   type: 'tasks' },
-  { id: 'day_3',        label: '3-Day Streak',  icon: '🔥', req: 3,   type: 'streak' },
-  { id: 'halfway',      label: 'Halfway',       icon: '⚡', req: 50,  type: 'points' },
-  { id: 'week_warrior', label: 'Week Warrior',  icon: '🗡️', req: 7,   type: 'streak' },
-  { id: 'century',      label: 'Century',       icon: '💯', req: 100, type: 'points' },
-  { id: 'phase_done',   label: 'Phase Done',    icon: '🏆', req: 1,   type: 'phases' },
-]
-
-function computeBadges(completedCount, streak, points, phasesCompleted) {
-  return BADGE_DEFS.map((b) => {
-    let earned = false
-    if (b.type === 'tasks')  earned = completedCount >= b.req
-    if (b.type === 'streak') earned = streak >= b.req
-    if (b.type === 'points') earned = points >= b.req
-    if (b.type === 'phases') earned = phasesCompleted >= b.req
-    return { ...b, earned }
-  })
+function formatDateTime() {
+  const now = new Date()
+  const date = now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+  const time = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+  return { date, time }
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// Tasks per day — 1 task per day so a 10-task phase = 10 days, 60-task phase = 60 days
+// But AI gives ~10 tasks per phase with duration_days=60, so we spread them across duration_days
+function getTasksForDay(tasks, durationDays, dayNumber) {
+  if (!tasks || tasks.length === 0) return []
+  // Spread tasks evenly across duration_days
+  // e.g. 10 tasks, 60 days → task 1 on day 1-6, task 2 on day 7-12, etc.
+  const daysPerTask = Math.floor(durationDays / tasks.length)
+  const taskIdx = Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
+  // Return the task for today plus mark which taskIdx it is
+  return [{ task: tasks[taskIdx], taskIdx }]
+}
+
+// Which task index is active on a given day
+function getActiveTaskIdx(tasks, durationDays, dayNumber) {
+  if (!tasks || tasks.length === 0) return 0
+  const daysPerTask = Math.floor(durationDays / tasks.length)
+  return Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
+}
+
+// How many days have passed in previous phases
+function daysBeforePhase(roadmap, phaseIdx) {
+  let total = 0
+  for (let i = 0; i < phaseIdx; i++) {
+    total += roadmap[i]?.duration_days || 60
+  }
+  return total
+}
+
+// Streak milestones
+const STREAK_MILESTONES = [7, 14, 30, 60, 90]
+function nextMilestone(streak) {
+  return STREAK_MILESTONES.find(m => m > streak) || 100
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 export default function Journey() {
   const navigate = useNavigate()
 
-  // ── State ──────────────────────────────────────────────────────────────────
-  const [journeyData,     setJourneyData]     = useState(null)
-  const [checkedTasks,    setCheckedTasks]    = useState({})   // "phaseIdx-taskIdx" → bool
-  const [points,          setPoints]          = useState(0)
-  const [streak,          setStreak]          = useState(0)
-  const [activeTab,       setActiveTab]       = useState('phases')
-  const [now,             setNow]             = useState(new Date())
-  const [showPicker,      setShowPicker]      = useState(false)  // only true when no journey exists
-  const [reminderEnabled, setReminderEnabled] = useState(false)
-  const [reminderTime,    setReminderTime]    = useState('08:00')
-  const [reminderMsg,     setReminderMsg]     = useState('')
-  const [reminderLoading, setReminderLoading] = useState(false)
-  const [journeyStartDate, setJourneyStartDate] = useState(null)
+  const [journey, setJourney] = useState(null)
+  const [completedTasks, setCompletedTasks] = useState({})
+  const [points, setPoints] = useState(0)
+  const [streak, setStreak] = useState(0)
+  const [activeTab, setActiveTab] = useState('today')
+  const [showChangePicker, setShowChangePicker] = useState(false)
+  const [generatingJourney, setGeneratingJourney] = useState(false)
+  const [expandedPhase, setExpandedPhase] = useState(0)
+  const [error, setError] = useState(null)
+  const [dateTime, setDateTime] = useState(formatDateTime())
 
-  // ── Clock ──────────────────────────────────────────────────────────────────
+  // Reminder state
+  const [reminderEnabled, setReminderEnabled] = useState(false)
+  const [reminderTime, setReminderTime] = useState('08:00')
+  const [reminderSaving, setReminderSaving] = useState(false)
+  const [reminderMsg, setReminderMsg] = useState('')
+  const [showReminder, setShowReminder] = useState(false)
+
+  // Live clock
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 60000)
-    return () => clearInterval(t)
+    const timer = setInterval(() => setDateTime(formatDateTime()), 60000)
+    return () => clearInterval(timer)
   }, [])
 
-  // ── Load from localStorage ─────────────────────────────────────────────────
+  // ── Load state ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const stored = localStorage.getItem('journeyData')
-    if (stored) {
-      // Journey exists — skip career picker entirely
-      const parsed = JSON.parse(stored)
-      setJourneyData(parsed)
+    if (!stored) { navigate('/result'); return }
+    try { setJourney(JSON.parse(stored)) } catch { navigate('/result') }
 
-      const startDate = localStorage.getItem('journeyStartDate') || todayStr()
-      localStorage.setItem('journeyStartDate', startDate)
-      setJourneyStartDate(startDate)
+    const ct = localStorage.getItem('completedTasks')
+    if (ct) setCompletedTasks(JSON.parse(ct))
 
-      const savedChecked = localStorage.getItem('checkedTasks')
-      if (savedChecked) setCheckedTasks(JSON.parse(savedChecked))
+    setPoints(parseInt(localStorage.getItem('journeyPoints') || '0'))
+    setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
+  }, [navigate])
 
-      const savedPoints = localStorage.getItem('journeyPoints')
-      if (savedPoints) setPoints(parseInt(savedPoints, 10))
-
-      const savedStreak = localStorage.getItem('journeyStreak')
-      if (savedStreak) setStreak(parseInt(savedStreak, 10))
-    } else {
-      // No journey yet — show career picker
-      setShowPicker(true)
-    }
-
-    // Load reminder preference
-    fetchReminderPref()
+  // Load reminder from backend
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    fetch(`${import.meta.env.VITE_API_URL}/api/reminders/get`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(data => {
+        setReminderEnabled(data.enabled || false)
+        setReminderTime(data.reminder_time || '08:00')
+      })
+      .catch(() => {})
   }, [])
 
-  // ── Fetch reminder preference ──────────────────────────────────────────────
-  async function fetchReminderPref() {
-    try {
-      const res = await fetch('/api/reminder/get', { headers: authHeaders() })
-      if (res.ok) {
-        const data = await res.json()
-        setReminderEnabled(data.enabled)
-        setReminderTime(data.reminder_time || '08:00')
-      }
-    } catch {
-      // silently ignore — user just won't see saved preference
+  // ── Streak logic ───────────────────────────────────────────────────────────
+  const updateStreak = useCallback(() => {
+    const todayKey = getTodayKey()
+    const lastActive = localStorage.getItem('lastActiveDay')
+    if (lastActive === todayKey) return
+
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayKey = yesterday.toISOString().split('T')[0]
+
+    let newStreak = 1
+    if (lastActive === yesterdayKey) newStreak = streak + 1
+
+    setStreak(newStreak)
+    localStorage.setItem('journeyStreak', String(newStreak))
+    localStorage.setItem('lastActiveDay', todayKey)
+  }, [streak])
+
+  // ── Phase & day calculations ───────────────────────────────────────────────
+  const getPhaseProgress = useCallback((phaseIdx) => {
+    if (!journey) return 0
+    const tasks = journey.roadmap[phaseIdx]?.tasks || []
+    if (!tasks.length) return 0
+    const done = tasks.filter((_, ti) => completedTasks[`${phaseIdx}-${ti}`]).length
+    return Math.round((done / tasks.length) * 100)
+  }, [journey, completedTasks])
+
+  const getUnlockedPhase = useCallback(() => {
+    if (!journey) return 0
+    const daysElapsed = daysSince(journey.started_at)
+    let daysCounted = 0
+    for (let i = 0; i < journey.roadmap.length; i++) {
+      const phaseDays = journey.roadmap[i]?.duration_days || 60
+      daysCounted += phaseDays
+      // Phase unlocks only after its duration AND all tasks done
+      if (daysElapsed < daysCounted) return i
     }
+    return journey.roadmap.length - 1
+  }, [journey])
+
+  // Overall journey day (Day 1 of total days)
+  const daysElapsed = journey ? daysSince(journey.started_at) : 0
+  const currentJourneyDay = daysElapsed + 1
+
+  // Phase-specific day
+  const getDayInPhase = useCallback((phaseIdx) => {
+    if (!journey) return 1
+    const daysBefore = daysBeforePhase(journey.roadmap, phaseIdx)
+    return Math.max(1, currentJourneyDay - daysBefore)
+  }, [journey, currentJourneyDay])
+
+  // ── Today's section ────────────────────────────────────────────────────────
+  const getTodaySection = useCallback(() => {
+    if (!journey) return null
+    const unlockedPhase = getUnlockedPhase()
+    const phase = journey.roadmap[unlockedPhase]
+    if (!phase) return null
+    const duration = phase.duration_days || 60
+    const dayInPhase = Math.min(getDayInPhase(unlockedPhase), duration)
+    const todayTasks = getTasksForDay(phase.tasks, duration, dayInPhase)
+    return { phase, phaseIdx: unlockedPhase, dayInPhase, duration, todayTasks }
+  }, [journey, getUnlockedPhase, getDayInPhase])
+
+  // ── Toggle task ────────────────────────────────────────────────────────────
+  const toggleTask = (phaseIdx, taskIdx, allowedByDay = true) => {
+    if (!allowedByDay) return
+    const unlockedPhase = getUnlockedPhase()
+    if (phaseIdx > unlockedPhase) return
+
+    const key = `${phaseIdx}-${taskIdx}`
+    const already = completedTasks[key]
+    const updated = { ...completedTasks }
+
+    if (already) {
+      delete updated[key]
+      const newPts = Math.max(0, points - 10)
+      setPoints(newPts)
+      localStorage.setItem('journeyPoints', String(newPts))
+    } else {
+      updated[key] = true
+      const newPts = points + 10
+      setPoints(newPts)
+      localStorage.setItem('journeyPoints', String(newPts))
+      updateStreak()
+    }
+
+    setCompletedTasks(updated)
+    localStorage.setItem('completedTasks', JSON.stringify(updated))
+  }
+
+  // ── Badges (reactive) ──────────────────────────────────────────────────────
+  const getBadges = () => {
+    const totalDone = Object.keys(completedTasks).length
+    const badges = []
+    if (totalDone >= 1)  badges.push({ icon: '🌱', label: 'First Step',      desc: 'Completed your first task' })
+    if (totalDone >= 5)  badges.push({ icon: '🔥', label: 'On Fire',         desc: '5 tasks completed' })
+    if (totalDone >= 10) badges.push({ icon: '💎', label: 'Diamond Focus',   desc: '10 tasks done' })
+    if (streak >= 3)     badges.push({ icon: '⚡', label: '3-Day Streak',    desc: 'Active 3 days in a row' })
+    if (streak >= 7)     badges.push({ icon: '🏆', label: 'Weekly Warrior',  desc: '7-day streak!' })
+    if (streak >= 30)    badges.push({ icon: '🔱', label: 'Monthly Master',  desc: '30-day streak!' })
+    if (points >= 100)   badges.push({ icon: '💯', label: 'Century',         desc: '100 points earned' })
+    if (getPhaseProgress(0) === 100) badges.push({ icon: '🎯', label: 'Phase 1 Complete', desc: 'Finished Phase 1!' })
+    return badges
   }
 
   // ── Save reminder ──────────────────────────────────────────────────────────
-  async function saveReminder() {
-    setReminderLoading(true)
+  const saveReminder = async () => {
+    setReminderSaving(true)
     setReminderMsg('')
     try {
-      const res = await fetch('/api/reminder/set', {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/reminders/set`, {
         method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ enabled: reminderEnabled, time: reminderTime }),
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ enabled: reminderEnabled, time: reminderTime })
       })
-      if (res.ok) {
-        setReminderMsg('✅ Reminder saved!')
-      } else {
-        const err = await res.json().catch(() => ({}))
-        setReminderMsg(`❌ Failed: ${err.message || res.statusText}`)
-      }
-    } catch (e) {
-      setReminderMsg(`❌ Network error: ${e.message}`)
+      if (!res.ok) throw new Error('Failed')
+      setReminderMsg('✅ Reminder saved!')
+    } catch {
+      setReminderMsg('❌ Failed to save reminder')
     } finally {
-      setReminderLoading(false)
-      setTimeout(() => setReminderMsg(''), 4000)
+      setReminderSaving(false)
+      setTimeout(() => setReminderMsg(''), 3000)
     }
   }
 
-  // ── Called by CareerPicker when journey is generated ──────────────────────
-  const handleJourneyGenerated = useCallback((data) => {
-    localStorage.setItem('journeyData', JSON.stringify(data))
-    const start = todayStr()
-    localStorage.setItem('journeyStartDate', start)
-    localStorage.removeItem('checkedTasks')
-    localStorage.removeItem('journeyPoints')
-    localStorage.removeItem('journeyStreak')
-    setJourneyData(data)
-    setJourneyStartDate(start)
-    setCheckedTasks({})
-    setPoints(0)
-    setStreak(0)
-    setShowPicker(false)
-  }, [])
-
-  // ── Change career (reset everything) ──────────────────────────────────────
-  function handleChangeCareer() {
-    localStorage.removeItem('journeyData')
-    localStorage.removeItem('journeyStartDate')
-    localStorage.removeItem('checkedTasks')
-    localStorage.removeItem('journeyPoints')
-    localStorage.removeItem('journeyStreak')
-    setJourneyData(null)
-    setCheckedTasks({})
-    setPoints(0)
-    setStreak(0)
-    setShowPicker(true)
-  }
-
-  // ── Task toggle ────────────────────────────────────────────────────────────
-  function toggleTask(key, wasChecked) {
-    const newChecked = { ...checkedTasks, [key]: !wasChecked }
-    setCheckedTasks(newChecked)
-    localStorage.setItem('checkedTasks', JSON.stringify(newChecked))
-
-    const delta = wasChecked ? -10 : 10
-    const newPoints = Math.max(0, points + delta)
-    setPoints(newPoints)
-    localStorage.setItem('journeyPoints', String(newPoints))
-
-    if (!wasChecked) {
-      const newStreak = streak + 1
-      setStreak(newStreak)
-      localStorage.setItem('journeyStreak', String(newStreak))
-    } else {
-      const newStreak = Math.max(0, streak - 1)
-      setStreak(newStreak)
-      localStorage.setItem('journeyStreak', String(newStreak))
-    }
-  }
-
-  // ── Derived data ───────────────────────────────────────────────────────────
-  const allTasks = journeyData
-    ? journeyData.phases.flatMap((ph, pi) =>
-        ph.tasks.map((t, ti) => ({ key: `${pi}-${ti}`, task: t, phaseIdx: pi, taskIdx: ti }))
-      )
-    : []
-
-  const completedCount = Object.values(checkedTasks).filter(Boolean).length
-  const badges = computeBadges(completedCount, streak, points, 0)
-
-  // Build day map once journeyData and startDate are available
-  const dayMap = journeyData && journeyStartDate
-    ? buildDayMap(journeyData.phases, journeyStartDate)
-    : {}
-
-  const today = todayStr()
-
-  // Figure out which absolute day index is "today"
-  const todayDayIndex = Object.entries(dayMap).find(([, d]) => d === today)?.[0]
-  const todayNum = todayDayIndex !== undefined ? parseInt(todayDayIndex, 10) : 0
-
-  // Journey day number (1-based, for display)
-  const journeyDayNumber = journeyStartDate
-    ? Math.max(1, Math.floor((new Date(today) - new Date(journeyStartDate)) / 86400000) + 1)
-    : 1
-
-  // Total days
-  const totalDays = allTasks.length
-
-  // ── Day index within tasks (global) ───────────────────────────────────────
-  // tasks are grouped by phase; each task = 1 day
-  let globalDayIdx = 0
-  const phasesWithDays = journeyData
-    ? journeyData.phases.map((phase, pi) => ({
-        ...phase,
-        tasks: phase.tasks.map((task, ti) => {
-          const key = `${pi}-${ti}`
-          const dayIdx = globalDayIdx++
-          const dateStr = (() => {
-            if (!journeyStartDate) return ''
-            const d = new Date(journeyStartDate)
-            d.setDate(d.getDate() + dayIdx)
-            return d.toISOString().split('T')[0]
-          })()
-          const isPast   = dateStr < today
-          const isToday  = dateStr === today
-          const isFuture = dateStr > today
-          return { task, key, dayIdx, dateStr, isPast, isToday, isFuture, phaseIdx: pi, taskIdx: ti }
+  // ── Change career ──────────────────────────────────────────────────────────
+  const handleCareerChange = async (chosenCareer) => {
+    setGeneratingJourney(true)
+    setError(null)
+    try {
+      const result = JSON.parse(localStorage.getItem('result') || '{}')
+      const token = localStorage.getItem('token')
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/generate-journey`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          personality_type: result.personality_type,
+          personality_name: result.personality_name,
+          chosen_career: chosenCareer,
+          top_traits: result.top_traits,
+          skills_to_learn: result.skills_to_learn,
         }),
-      }))
-    : []
+      })
+      if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Failed') }
+      const journeyData = await res.json()
+      const payload = {
+        chosen_career: chosenCareer,
+        personality_type: result.personality_type,
+        personality_name: result.personality_name,
+        roadmap: journeyData.roadmap,
+        daily_schedule: journeyData.daily_schedule,
+        started_at: new Date().toISOString(),
+      }
+      localStorage.setItem('journeyData', JSON.stringify(payload))
+      localStorage.removeItem('completedTasks')
+      localStorage.setItem('journeyPoints', '0')
+      localStorage.setItem('journeyStreak', '0')
+      localStorage.removeItem('lastActiveDay')
+      setJourney(payload)
+      setCompletedTasks({})
+      setPoints(0)
+      setStreak(0)
+      setShowChangePicker(false)
+      setExpandedPhase(0)
+      setActiveTab('today')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setGeneratingJourney(false)
+    }
+  }
 
-  // ── Render: Career Picker ──────────────────────────────────────────────────
-  if (showPicker) {
+  // ── Loading ────────────────────────────────────────────────────────────────
+  if (!journey) return (
+    <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
+      <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+    </div>
+  )
+
+  // ── Change career overlay ──────────────────────────────────────────────────
+  if (showChangePicker) {
+    const result = JSON.parse(localStorage.getItem('result') || '{}')
     return (
-      <CareerPicker onJourneyGenerated={handleJourneyGenerated} />
+      <>
+        <CareerPicker result={result} onSelect={handleCareerChange} loading={generatingJourney} />
+        <button
+          onClick={() => setShowChangePicker(false)}
+          className="fixed top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl transition-all"
+        >✕ Cancel</button>
+        {error && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50">
+            ⚠️ {error}
+          </div>
+        )}
+      </>
     )
   }
 
-  if (!journeyData) return null
+  const unlockedPhase = getUnlockedPhase()
+  const badges = getBadges()
+  const todaySection = getTodaySection()
+  const milestone = nextMilestone(streak)
+  const streakPct = Math.min((streak / milestone) * 100, 100)
 
-  // ── Render: Journey ────────────────────────────────────────────────────────
+  // Total journey days
+  const totalJourneyDays = journey.roadmap.reduce((sum, p) => sum + (p.duration_days || 60), 0)
+
   return (
-    <div style={{ minHeight: '100vh', background: '#0f0f1a', color: '#e2e8f0', fontFamily: 'sans-serif' }}>
+    <div className="min-h-screen bg-[#1A1A2E] text-white">
 
       {/* ── Header ── */}
-      <div style={{ background: 'linear-gradient(135deg,#1a1a2e,#16213e)', padding: '20px 24px', borderBottom: '1px solid #2d2d44', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, background: 'linear-gradient(90deg,#a855f7,#ec4899)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            🚀 {journeyData.career} Journey
-          </h1>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: '#9ca3af' }}>
-            Day {journeyDayNumber} of {totalDays} &nbsp;·&nbsp;
-            {now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })} &nbsp;·&nbsp;
-            {now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-          </p>
-        </div>
-        <button
-          onClick={handleChangeCareer}
-          style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #a855f7', background: 'transparent', color: '#a855f7', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
-        >
-          🔄 Change Career
-        </button>
-      </div>
-
-      {/* ── Stats bar ── */}
-      <div style={{ display: 'flex', gap: 12, padding: '16px 24px', flexWrap: 'wrap' }}>
-        {[
-          { label: '⭐ Points', value: points },
-          { label: '🔥 Streak', value: `${streak} days` },
-          { label: '✅ Done', value: `${completedCount}/${totalDays}` },
-        ].map((s) => (
-          <div key={s.label} style={{ flex: 1, minWidth: 100, background: '#1a1a2e', borderRadius: 12, padding: '12px 16px', textAlign: 'center', border: '1px solid #2d2d44' }}>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#a855f7' }}>{s.value}</div>
-            <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 2 }}>{s.label}</div>
+      <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-3">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
+          <div>
+            <h1 className="text-white font-bold text-lg">My Journey</h1>
+            <p className="text-purple-300 text-sm">{journey.chosen_career}</p>
           </div>
-        ))}
-      </div>
-
-      {/* ── Progress bar ── */}
-      <div style={{ padding: '0 24px 16px' }}>
-        <div style={{ background: '#1e1e33', borderRadius: 99, height: 8, overflow: 'hidden' }}>
-          <div style={{ width: `${totalDays ? (completedCount / totalDays) * 100 : 0}%`, height: '100%', background: 'linear-gradient(90deg,#7c3aed,#db2777)', transition: 'width 0.4s' }} />
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowReminder(!showReminder)}
+              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all"
+            >
+              🔔 Reminder
+            </button>
+            <button
+              onClick={() => setShowChangePicker(true)}
+              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all"
+            >
+              🔄 Change
+            </button>
+          </div>
         </div>
-        <div style={{ fontSize: 11, color: '#6b7280', marginTop: 4 }}>{Math.round(totalDays ? (completedCount / totalDays) * 100 : 0)}% complete</div>
-      </div>
 
-      {/* ── Tabs ── */}
-      <div style={{ display: 'flex', gap: 4, padding: '0 24px 16px', borderBottom: '1px solid #2d2d44' }}>
-        {['phases', 'schedule', 'badges', 'reminder'].map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            style={{
-              padding: '8px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600, textTransform: 'capitalize',
-              background: activeTab === tab ? 'linear-gradient(135deg,#7c3aed,#db2777)' : '#1a1a2e',
-              color: activeTab === tab ? '#fff' : '#9ca3af',
-            }}
-          >
-            {tab === 'phases' ? '📋 Phases' : tab === 'schedule' ? '📅 Schedule' : tab === 'badges' ? '🏅 Badges' : '🔔 Reminder'}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Tab content ── */}
-      <div style={{ padding: '20px 24px', maxWidth: 800, margin: '0 auto' }}>
-
-        {/* PHASES TAB */}
-        {activeTab === 'phases' && phasesWithDays.map((phase, pi) => {
-          const phaseDone = phase.tasks.filter((t) => checkedTasks[t.key]).length
-          const phaseTotal = phase.tasks.length
-          return (
-            <div key={pi} style={{ marginBottom: 28 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#a855f7', margin: '0 0 12px' }}>
-                Phase {pi + 1}: {phase.title || phase.name || `Phase ${pi + 1}`}
-                <span style={{ fontSize: 12, fontWeight: 400, color: '#9ca3af', marginLeft: 8 }}>
-                  {phaseDone}/{phaseTotal} done
-                </span>
-              </h3>
-              {phase.tasks.map(({ task, key, dayIdx, dateStr, isPast, isToday, isFuture, phaseIdx, taskIdx }) => {
-                const checked = !!checkedTasks[key]
-                const locked  = isFuture
-                return (
-                  <motion.div
-                    key={key}
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: taskIdx * 0.03 }}
-                    style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 12,
-                      padding: '12px 14px', marginBottom: 8, borderRadius: 10,
-                      background: locked ? '#111118' : isToday ? '#1a1030' : '#151525',
-                      border: `1px solid ${isToday ? '#7c3aed' : locked ? '#1e1e33' : '#2d2d44'}`,
-                      opacity: locked ? 0.5 : 1,
-                      cursor: locked ? 'not-allowed' : 'pointer',
-                    }}
-                    onClick={() => !locked && toggleTask(key, checked)}
+        {/* Reminder Panel */}
+        <AnimatePresence>
+          {showReminder && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="max-w-2xl mx-auto mt-3 bg-[#16213E] border border-purple-900/40 rounded-xl p-4 overflow-hidden"
+            >
+              <p className="text-white font-semibold mb-3">🔔 Daily Reminder</p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <div
+                    onClick={() => setReminderEnabled(!reminderEnabled)}
+                    className={`w-11 h-6 rounded-full transition-all relative cursor-pointer ${reminderEnabled ? 'bg-purple-600' : 'bg-gray-700'}`}
                   >
-                    <span style={{ fontSize: 18, marginTop: 1 }}>
-                      {locked ? '🔒' : checked ? '✅' : isToday ? '📍' : isPast ? '⬜' : '⬜'}
-                    </span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: checked ? '#6b7280' : '#e2e8f0', textDecoration: checked ? 'line-through' : 'none' }}>
-                        Day {dayIdx + 1}: {typeof task === 'string' ? task : task.title || task.task || JSON.stringify(task)}
-                      </div>
-                      {typeof task === 'object' && task.description && (
-                        <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 3 }}>{task.description}</div>
-                      )}
-                      <div style={{ fontSize: 11, color: isToday ? '#a855f7' : '#4b5563', marginTop: 4 }}>
-                        {isToday ? '📅 Today' : isPast ? `📅 ${dateStr}` : `🔒 Unlocks ${dateStr}`}
-                      </div>
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${reminderEnabled ? 'left-6' : 'left-1'}`} />
+                  </div>
+                  <span className="text-gray-300 text-sm">{reminderEnabled ? 'Enabled' : 'Disabled'}</span>
+                </label>
+                <input
+                  type="time"
+                  value={reminderTime}
+                  onChange={e => setReminderTime(e.target.value)}
+                  disabled={!reminderEnabled}
+                  className="bg-[#1A1A2E] border border-purple-900/50 text-white px-3 py-1.5 rounded-lg text-sm disabled:opacity-40"
+                />
+                <button
+                  onClick={saveReminder}
+                  disabled={reminderSaving}
+                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg transition-all disabled:opacity-50"
+                >
+                  {reminderSaving ? 'Saving...' : 'Save'}
+                </button>
+                {reminderMsg && <span className="text-sm text-green-400">{reminderMsg}</span>}
+              </div>
+              <p className="text-gray-600 text-xs mt-2">You'll get a daily email reminder at the set time (IST)</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* ── Date & Time Panel ── */}
+      <div className="max-w-2xl mx-auto px-4 pt-4">
+        <div className="bg-[#16213E] border border-purple-900/30 rounded-2xl px-5 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">📅</span>
+            <div>
+              <div className="text-white font-semibold text-sm">{dateTime.date}</div>
+              <div className="text-purple-400 text-xs">
+                Journey Day {currentJourneyDay} of {totalJourneyDays}
+              </div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-white font-bold text-lg">{dateTime.time}</div>
+            <div className="text-gray-500 text-xs">IST</div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Stats Bar ── */}
+      <div className="max-w-2xl mx-auto px-4 py-4 space-y-3">
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { icon: '⚡', label: 'Streak', value: `${streak}d` },
+            { icon: '💎', label: 'Points', value: points },
+            { icon: '🏅', label: 'Badges', value: badges.length },
+          ].map(({ icon, label, value }) => (
+            <div key={label} className="bg-[#16213E] rounded-2xl p-3 text-center border border-purple-900/30">
+              <div className="text-2xl">{icon}</div>
+              <div className="text-white font-bold text-lg">{value}</div>
+              <div className="text-gray-500 text-xs">{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Streak progress bar */}
+        <div className="bg-[#16213E] border border-purple-900/30 rounded-2xl px-4 py-3">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-gray-400 text-xs font-semibold">🔥 Streak Progress</span>
+            <span className="text-purple-400 text-xs">{streak} / {milestone} days to next badge</span>
+          </div>
+          <div className="h-2.5 bg-purple-900/30 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${streakPct}%` }}
+              transition={{ duration: 0.8, ease: 'easeOut' }}
+              className="h-full rounded-full bg-gradient-to-r from-orange-500 to-pink-500"
+            />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-gray-700 text-[10px]">0</span>
+            <span className="text-gray-700 text-[10px]">{milestone} days 🏆</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Tab Nav ── */}
+      <div className="max-w-2xl mx-auto px-4 mb-4">
+        <div className="flex gap-1 bg-[#16213E] rounded-2xl p-1 border border-purple-900/30">
+          {[
+            { key: 'today', label: 'Today' },
+            { key: 'phases', label: 'All Phases' },
+            { key: 'schedule', label: 'Schedule' },
+            { key: 'badges', label: 'Badges' },
+          ].map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === key ? 'bg-purple-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Tab Content ── */}
+      <div className="max-w-2xl mx-auto px-4 pb-10">
+        <AnimatePresence mode="wait">
+
+          {/* TODAY */}
+          {activeTab === 'today' && todaySection && (
+            <motion.div key="today" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mb-4">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h2 className="text-white font-bold text-lg">📋 Day {todaySection.dayInPhase} Tasks</h2>
+                    <p className="text-gray-400 text-sm">Phase {todaySection.phaseIdx + 1}: {todaySection.phase?.goal}</p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-purple-400 text-xs font-semibold">
+                      Day {todaySection.dayInPhase} of {todaySection.duration}
                     </div>
-                  </motion.div>
+                    <div className="text-gray-600 text-xs mt-0.5">
+                      {todaySection.todayTasks.filter(({ taskIdx }) => completedTasks[`${todaySection.phaseIdx}-${taskIdx}`]).length}
+                      /{todaySection.todayTasks.length} done
+                    </div>
+                  </div>
+                </div>
+
+                {todaySection.todayTasks.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-5xl mb-3">🎉</div>
+                    <p className="text-white font-bold">Phase {todaySection.phaseIdx + 1} Complete!</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {todaySection.todayTasks.map(({ task, taskIdx }) => {
+                      const key = `${todaySection.phaseIdx}-${taskIdx}`
+                      const done = !!completedTasks[key]
+                      return (
+                        <motion.button
+                          key={key}
+                          onClick={() => toggleTask(todaySection.phaseIdx, taskIdx, true)}
+                          whileTap={{ scale: 0.98 }}
+                          className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
+                            done ? 'border-green-500/50 bg-green-900/20' : 'border-purple-900/50 bg-[#1A1A2E] hover:border-purple-500/60'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                              done ? 'border-green-500 bg-green-500' : 'border-gray-600'
+                            }`}>
+                              {done && <span className="text-white text-xs">✓</span>}
+                            </div>
+                            <span className={`text-sm leading-relaxed ${done ? 'text-green-400 line-through' : 'text-gray-200'}`}>
+                              {task}
+                            </span>
+                          </div>
+                        </motion.button>
+                      )
+                    })}
+                  </div>
+                )}
+
+                <div className="mt-4 p-3 bg-purple-900/20 border border-purple-900/40 rounded-xl">
+                  <p className="text-purple-400 text-xs text-center">
+                    🔒 Tomorrow's tasks unlock at midnight — come back daily to keep your streak!
+                  </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ALL PHASES */}
+          {activeTab === 'phases' && (
+            <motion.div key="phases" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-4">
+              {journey.roadmap.map((phase, phaseIdx) => {
+                const progress = getPhaseProgress(phaseIdx)
+                const isLocked = phaseIdx > unlockedPhase
+                const isExpanded = expandedPhase === phaseIdx && !isLocked
+                const duration = phase.duration_days || 60
+                const dayInPhase = Math.min(getDayInPhase(phaseIdx), duration)
+                const activeTaskIdx = getActiveTaskIdx(phase.tasks, duration, dayInPhase)
+
+                return (
+                  <div key={phaseIdx} className={`rounded-2xl border overflow-hidden transition-all ${
+                    isLocked ? 'border-purple-900/20 bg-[#16213E] opacity-50'
+                    : phaseIdx === unlockedPhase ? 'border-purple-600/50 bg-[#16213E]'
+                    : 'border-green-900/40 bg-[#16213E]'
+                  }`}>
+                    <button
+                      onClick={() => !isLocked && setExpandedPhase(isExpanded ? -1 : phaseIdx)}
+                      className="w-full p-5 text-left"
+                      disabled={isLocked}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="text-2xl">{isLocked ? '🔒' : progress === 100 ? '✅' : '📌'}</div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-white font-bold">Phase {phaseIdx + 1}</span>
+                            <span className="text-gray-500 text-xs">— {phase.month}</span>
+                            {isLocked && <span className="text-xs text-gray-600">Unlocks after Phase {phaseIdx}</span>}
+                          </div>
+                          <p className="text-gray-400 text-sm mt-0.5">{phase.goal}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className={`font-bold ${progress === 100 ? 'text-green-400' : 'text-purple-400'}`}>{progress}%</div>
+                          {!isLocked && <div className="text-gray-600 text-xs">Day {dayInPhase}/{duration}</div>}
+                        </div>
+                      </div>
+                      {!isLocked && (
+                        <div className="mt-3 h-2 bg-purple-900/30 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${progress}%` }}
+                            transition={{ duration: 0.5 }}
+                            className={`h-full rounded-full ${progress === 100 ? 'bg-green-500' : 'bg-gradient-to-r from-purple-600 to-pink-600'}`}
+                          />
+                        </div>
+                      )}
+                    </button>
+
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="border-t border-purple-900/30 overflow-hidden"
+                        >
+                          <div className="p-4 space-y-2">
+                            {phase.tasks.map((task, taskIdx) => {
+                              const key = `${phaseIdx}-${taskIdx}`
+                              const done = !!completedTasks[key]
+                              const isActiveToday = taskIdx === activeTaskIdx
+                              const isPast = taskIdx < activeTaskIdx
+                              const isFuture = taskIdx > activeTaskIdx
+                              const canToggle = !isFuture
+
+                              return (
+                                <motion.button
+                                  key={taskIdx}
+                                  onClick={() => canToggle && toggleTask(phaseIdx, taskIdx, canToggle)}
+                                  whileTap={canToggle ? { scale: 0.98 } : {}}
+                                  className={`w-full text-left p-3 rounded-xl flex items-start gap-3 transition-all ${
+                                    isFuture ? 'opacity-40 cursor-not-allowed bg-[#1A1A2E]'
+                                    : done ? 'bg-green-900/20'
+                                    : isActiveToday ? 'bg-purple-900/30 border border-purple-700/40'
+                                    : 'bg-[#1A1A2E] hover:bg-purple-900/20'
+                                  }`}
+                                >
+                                  <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                                    isFuture ? 'border-gray-700' : done ? 'border-green-500 bg-green-500' : 'border-gray-600'
+                                  }`}>
+                                    {done && !isFuture && <span className="text-white text-[10px]">✓</span>}
+                                  </div>
+                                  <div className="flex-1">
+                                    <span className={`text-sm ${
+                                      isFuture ? 'text-gray-700' : done ? 'text-green-400 line-through' : 'text-gray-300'
+                                    }`}>{task}</span>
+                                    {isActiveToday && !done && (
+                                      <span className="ml-2 text-[10px] bg-purple-600/40 text-purple-300 px-1.5 py-0.5 rounded-full">Today</span>
+                                    )}
+                                    {isFuture && (
+                                      <span className="ml-2 text-[10px] text-gray-700">🔒 future</span>
+                                    )}
+                                  </div>
+                                </motion.button>
+                              )
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 )
               })}
-            </div>
-          )
-        })}
+            </motion.div>
+          )}
 
-        {/* SCHEDULE TAB */}
-        {activeTab === 'schedule' && (
-          <div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#a855f7', marginBottom: 16 }}>📅 Daily Schedule</h3>
-            {journeyData.schedule ? (
-              Array.isArray(journeyData.schedule)
-                ? journeyData.schedule.map((item, i) => (
-                    <div key={i} style={{ padding: '12px 16px', marginBottom: 8, borderRadius: 10, background: '#151525', border: '1px solid #2d2d44' }}>
-                      <div style={{ fontWeight: 600, color: '#a855f7', fontSize: 14 }}>{item.time || `Block ${i + 1}`}</div>
-                      <div style={{ fontSize: 13, color: '#e2e8f0', marginTop: 4 }}>{item.activity || item.task || JSON.stringify(item)}</div>
-                    </div>
-                  ))
-                : <p style={{ color: '#9ca3af', fontSize: 14 }}>{JSON.stringify(journeyData.schedule)}</p>
-            ) : (
-              <p style={{ color: '#9ca3af', fontSize: 14 }}>No schedule generated. Try changing your career to regenerate.</p>
-            )}
-          </div>
-        )}
-
-        {/* BADGES TAB */}
-        {activeTab === 'badges' && (
-          <div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#a855f7', marginBottom: 16 }}>🏅 Badges</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(140px,1fr))', gap: 12 }}>
-              {badges.map((b) => (
-                <div
-                  key={b.id}
-                  style={{
-                    textAlign: 'center', padding: '16px 12px', borderRadius: 12,
-                    background: b.earned ? '#1a1030' : '#111118',
-                    border: `1px solid ${b.earned ? '#7c3aed' : '#2d2d44'}`,
-                    opacity: b.earned ? 1 : 0.45,
-                    transition: 'all 0.3s',
-                  }}
-                >
-                  <div style={{ fontSize: 32 }}>{b.icon}</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: b.earned ? '#e2e8f0' : '#6b7280', marginTop: 6 }}>{b.label}</div>
-                  {!b.earned && (
-                    <div style={{ fontSize: 11, color: '#4b5563', marginTop: 4 }}>
-                      {b.type === 'tasks'  ? `Complete ${b.req} tasks` :
-                       b.type === 'streak' ? `${b.req}-day streak` :
-                       b.type === 'points' ? `Reach ${b.req} pts` : 'Complete a phase'}
-                    </div>
-                  )}
+          {/* SCHEDULE */}
+          {activeTab === 'schedule' && (
+            <motion.div key="schedule" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+                <h2 className="text-white font-bold text-lg mb-1">📅 Daily Schedule</h2>
+                <p className="text-gray-400 text-sm mb-5">Tailored for: <span className="text-purple-400">{journey.chosen_career}</span></p>
+                <div className="space-y-3">
+                  {(journey.daily_schedule || []).map((item, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.06 }}
+                      className="flex items-center gap-4 p-4 bg-[#1A1A2E] rounded-xl border border-purple-900/20"
+                    >
+                      <div className="text-2xl w-10 text-center">{item.icon}</div>
+                      <div>
+                        <div className="text-purple-400 text-xs font-semibold">{item.time}</div>
+                        <div className="text-white text-sm font-medium mt-0.5">{item.task}</div>
+                      </div>
+                    </motion.div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
+              </div>
+            </motion.div>
+          )}
 
-        {/* REMINDER TAB */}
-        {activeTab === 'reminder' && (
-          <div>
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#a855f7', marginBottom: 16 }}>🔔 Daily Reminder</h3>
-            <div style={{ background: '#151525', borderRadius: 12, padding: 20, border: '1px solid #2d2d44' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', marginBottom: 16 }}>
-                <input
-                  type="checkbox"
-                  checked={reminderEnabled}
-                  onChange={(e) => setReminderEnabled(e.target.checked)}
-                  style={{ width: 18, height: 18, accentColor: '#a855f7' }}
-                />
-                <span style={{ fontSize: 14, fontWeight: 600 }}>Enable daily reminder email</span>
-              </label>
+          {/* BADGES */}
+          {activeTab === 'badges' && (
+            <motion.div key="badges" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
+                <h2 className="text-white font-bold text-lg mb-1">🏅 Your Badges</h2>
+                <p className="text-gray-400 text-sm mb-5">{badges.length} earned so far</p>
 
-              <label style={{ display: 'block', fontSize: 13, color: '#9ca3af', marginBottom: 8 }}>Reminder time (IST)</label>
-              <input
-                type="time"
-                value={reminderTime}
-                onChange={(e) => setReminderTime(e.target.value)}
-                disabled={!reminderEnabled}
-                style={{
-                  padding: '8px 12px', borderRadius: 8, border: '1px solid #3d3d5c',
-                  background: '#0f0f1a', color: '#e2e8f0', fontSize: 14,
-                  opacity: reminderEnabled ? 1 : 0.4, cursor: reminderEnabled ? 'auto' : 'not-allowed',
-                  marginBottom: 16, width: 140,
-                }}
-              />
+                {badges.length === 0 ? (
+                  <div className="text-center py-10">
+                    <div className="text-5xl mb-3">🌱</div>
+                    <p className="text-gray-500">Complete tasks to earn your first badge!</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 mb-6">
+                    {badges.map((badge, i) => (
+                      <motion.div
+                        key={badge.label}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ delay: i * 0.07, type: 'spring' }}
+                        className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-700/40 rounded-2xl p-4 text-center"
+                      >
+                        <div className="text-4xl mb-2">{badge.icon}</div>
+                        <div className="text-white font-bold text-sm">{badge.label}</div>
+                        <div className="text-gray-500 text-xs mt-1">{badge.desc}</div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
 
-              <button
-                onClick={saveReminder}
-                disabled={reminderLoading}
-                style={{
-                  display: 'block', padding: '10px 24px', borderRadius: 10, border: 'none', cursor: 'pointer',
-                  background: 'linear-gradient(135deg,#7c3aed,#db2777)', color: '#fff', fontWeight: 700, fontSize: 14,
-                  opacity: reminderLoading ? 0.6 : 1,
-                }}
-              >
-                {reminderLoading ? 'Saving...' : 'Save Reminder'}
-              </button>
+                {/* Locked badges */}
+                {[
+                  { icon: '🔥', label: 'On Fire', desc: '5 tasks' },
+                  { icon: '💎', label: 'Diamond Focus', desc: '10 tasks' },
+                  { icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak' },
+                  { icon: '🔱', label: 'Monthly Master', desc: '30-day streak' },
+                  { icon: '💯', label: 'Century', desc: '100 points' },
+                  { icon: '🎯', label: 'Phase 1 Complete', desc: 'Finish Phase 1' },
+                ].filter(b => !badges.find(e => e.label === b.label)).length > 0 && (
+                  <>
+                    <p className="text-gray-600 text-xs font-semibold mb-3">LOCKED BADGES</p>
+                    <div className="grid grid-cols-2 gap-3 opacity-30">
+                      {[
+                        { icon: '🔥', label: 'On Fire', desc: '5 tasks' },
+                        { icon: '💎', label: 'Diamond Focus', desc: '10 tasks' },
+                        { icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak' },
+                        { icon: '🔱', label: 'Monthly Master', desc: '30-day streak' },
+                        { icon: '💯', label: 'Century', desc: '100 points' },
+                        { icon: '🎯', label: 'Phase 1 Complete', desc: 'Finish Phase 1' },
+                      ].filter(b => !badges.find(e => e.label === b.label))
+                       .map((badge, i) => (
+                        <div key={i} className="bg-[#1A1A2E] border border-gray-800 rounded-2xl p-4 text-center">
+                          <div className="text-4xl mb-2 grayscale">{badge.icon}</div>
+                          <div className="text-gray-600 font-bold text-sm">{badge.label}</div>
+                          <div className="text-gray-700 text-xs mt-1">{badge.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </motion.div>
+          )}
 
-              {reminderMsg && (
-                <p style={{ marginTop: 12, fontSize: 13, color: reminderMsg.startsWith('✅') ? '#34d399' : '#f87171' }}>
-                  {reminderMsg}
-                </p>
-              )}
-
-              <p style={{ fontSize: 12, color: '#4b5563', marginTop: 16, lineHeight: 1.6 }}>
-                We'll send a daily email at your chosen time reminding you to complete your tasks. Make sure your email is verified.
-              </p>
-            </div>
-          </div>
-        )}
-
+        </AnimatePresence>
       </div>
     </div>
   )
