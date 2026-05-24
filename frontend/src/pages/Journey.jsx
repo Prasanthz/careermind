@@ -81,27 +81,58 @@ export default function Journey() {
   // ── Load state ─────────────────────────────────────────────────────────────
   // FIX: instead of navigate('/result') when no journey, show CareerPicker
   useEffect(() => {
+    const token = localStorage.getItem('token')
     const user = JSON.parse(localStorage.getItem('user') || '{}')
-    const key = user?.id ? `journeyData_${user.id}` : 'journeyData'
-    const stored = localStorage.getItem(key)
-    if (!stored) {
-      setShowInitialPicker(true)
-      return
-    }
-    try {
-      const parsed = JSON.parse(stored)
-      if (!parsed.roadmap || !Array.isArray(parsed.roadmap)) throw new Error('bad')
+    const localKey = user?.id ? `journeyData_${user.id}` : 'journeyData'
+
+    const applyJourney = (parsed) => {
       setJourney(parsed)
-    } catch {
-      localStorage.removeItem(key)
-      setShowInitialPicker(true)
-      return
+      const ct = localStorage.getItem('completedTasks')
+      if (ct) setCompletedTasks(JSON.parse(ct))
+      setPoints(parseInt(localStorage.getItem('journeyPoints') || '0'))
+      setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
     }
 
-    const ct = localStorage.getItem('completedTasks')
-    if (ct) setCompletedTasks(JSON.parse(ct))
-    setPoints(parseInt(localStorage.getItem('journeyPoints') || '0'))
-    setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
+    if (token) {
+      // Try backend first
+      fetch(`${import.meta.env.VITE_API_URL}/api/quiz/journey`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+        .then(r => r.json())
+        .then(data => {
+          if (data.journey) {
+            localStorage.setItem(localKey, JSON.stringify(data.journey))
+            applyJourney(data.journey)
+          } else {
+            // No journey in DB — check localStorage
+            const stored = localStorage.getItem(localKey)
+            if (stored) {
+              try { applyJourney(JSON.parse(stored)) }
+              catch { setShowInitialPicker(true) }
+            } else {
+              setShowInitialPicker(true)
+            }
+          }
+        })
+        .catch(() => {
+          // Network error — fall back to localStorage
+          const stored = localStorage.getItem(localKey)
+          if (stored) {
+            try { applyJourney(JSON.parse(stored)) }
+            catch { setShowInitialPicker(true) }
+          } else {
+            setShowInitialPicker(true)
+          }
+        })
+    } else {
+      const stored = localStorage.getItem(localKey)
+      if (stored) {
+        try { applyJourney(JSON.parse(stored)) }
+        catch { setShowInitialPicker(true) }
+      } else {
+        setShowInitialPicker(true)
+      }
+    }
   }, [])
 
   // Load reminder from backend
@@ -284,6 +315,17 @@ export default function Journey() {
       const user = JSON.parse(localStorage.getItem('user') || '{}')
       const key = user?.id ? `journeyData_${user.id}` : 'journeyData'
       localStorage.setItem(key, JSON.stringify(payload))
+      // Save to backend
+      if (token) {
+        fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ journey: payload })
+        }).catch(() => {})
+      }
       localStorage.removeItem('completedTasks')
       localStorage.setItem('journeyPoints', '0')
       localStorage.setItem('journeyStreak', '0')
