@@ -24,26 +24,19 @@ function formatDateTime() {
   return { date, time }
 }
 
-// Tasks per day — 1 task per day so a 10-task phase = 10 days, 60-task phase = 60 days
-// But AI gives ~10 tasks per phase with duration_days=60, so we spread them across duration_days
 function getTasksForDay(tasks, durationDays, dayNumber) {
   if (!tasks || tasks.length === 0) return []
-  // Spread tasks evenly across duration_days
-  // e.g. 10 tasks, 60 days → task 1 on day 1-6, task 2 on day 7-12, etc.
   const daysPerTask = Math.floor(durationDays / tasks.length)
   const taskIdx = Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
-  // Return the task for today plus mark which taskIdx it is
   return [{ task: tasks[taskIdx], taskIdx }]
 }
 
-// Which task index is active on a given day
 function getActiveTaskIdx(tasks, durationDays, dayNumber) {
   if (!tasks || tasks.length === 0) return 0
   const daysPerTask = Math.floor(durationDays / tasks.length)
   return Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
 }
 
-// How many days have passed in previous phases
 function daysBeforePhase(roadmap, phaseIdx) {
   let total = 0
   for (let i = 0; i < phaseIdx; i++) {
@@ -52,7 +45,6 @@ function daysBeforePhase(roadmap, phaseIdx) {
   return total
 }
 
-// Streak milestones
 const STREAK_MILESTONES = [7, 14, 30, 60, 90]
 function nextMilestone(streak) {
   return STREAK_MILESTONES.find(m => m > streak) || 100
@@ -68,42 +60,54 @@ export default function Journey() {
   const [streak, setStreak] = useState(0)
   const [activeTab, setActiveTab] = useState('today')
   const [showChangePicker, setShowChangePicker] = useState(false)
+  // FIX: showInitialPicker — shown when no journeyData exists yet
+  const [showInitialPicker, setShowInitialPicker] = useState(false)
   const [generatingJourney, setGeneratingJourney] = useState(false)
   const [expandedPhase, setExpandedPhase] = useState(0)
   const [error, setError] = useState(null)
   const [dateTime, setDateTime] = useState(formatDateTime())
 
-  // Reminder state
   const [reminderEnabled, setReminderEnabled] = useState(false)
   const [reminderTime, setReminderTime] = useState('08:00')
   const [reminderSaving, setReminderSaving] = useState(false)
   const [reminderMsg, setReminderMsg] = useState('')
   const [showReminder, setShowReminder] = useState(false)
 
-  // Live clock
   useEffect(() => {
     const timer = setInterval(() => setDateTime(formatDateTime()), 60000)
     return () => clearInterval(timer)
   }, [])
 
   // ── Load state ─────────────────────────────────────────────────────────────
+  // FIX: instead of navigate('/result') when no journey, show CareerPicker
   useEffect(() => {
     const stored = localStorage.getItem('journeyData')
-    if (!stored) { navigate('/result'); return }
-    try { setJourney(JSON.parse(stored)) } catch { navigate('/result') }
+    if (!stored) {
+      setShowInitialPicker(true)
+      return
+    }
+    try {
+      const parsed = JSON.parse(stored)
+      if (!parsed.roadmap || !Array.isArray(parsed.roadmap)) throw new Error('bad')
+      setJourney(parsed)
+    } catch {
+      localStorage.removeItem('journeyData')
+      setShowInitialPicker(true)
+      return
+    }
 
     const ct = localStorage.getItem('completedTasks')
     if (ct) setCompletedTasks(JSON.parse(ct))
-
     setPoints(parseInt(localStorage.getItem('journeyPoints') || '0'))
     setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
-  }, [navigate])
+  }, [])
 
   // Load reminder from backend
+  // FIX: correct route /api/reminder/get (no 's')
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) return
-    fetch(`${import.meta.env.VITE_API_URL}/api/reminders/get`, {
+    fetch(`${import.meta.env.VITE_API_URL}/api/reminder/get`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.json())
@@ -148,17 +152,14 @@ export default function Journey() {
     for (let i = 0; i < journey.roadmap.length; i++) {
       const phaseDays = journey.roadmap[i]?.duration_days || 60
       daysCounted += phaseDays
-      // Phase unlocks only after its duration AND all tasks done
       if (daysElapsed < daysCounted) return i
     }
     return journey.roadmap.length - 1
   }, [journey])
 
-  // Overall journey day (Day 1 of total days)
   const daysElapsed = journey ? daysSince(journey.started_at) : 0
   const currentJourneyDay = daysElapsed + 1
 
-  // Phase-specific day
   const getDayInPhase = useCallback((phaseIdx) => {
     if (!journey) return 1
     const daysBefore = daysBeforePhase(journey.roadmap, phaseIdx)
@@ -204,7 +205,7 @@ export default function Journey() {
     localStorage.setItem('completedTasks', JSON.stringify(updated))
   }
 
-  // ── Badges (reactive) ──────────────────────────────────────────────────────
+  // ── Badges ─────────────────────────────────────────────────────────────────
   const getBadges = () => {
     const totalDone = Object.keys(completedTasks).length
     const badges = []
@@ -220,12 +221,13 @@ export default function Journey() {
   }
 
   // ── Save reminder ──────────────────────────────────────────────────────────
+  // FIX: correct route /api/reminder/set (no 's'), and token from localStorage
   const saveReminder = async () => {
     setReminderSaving(true)
     setReminderMsg('')
     try {
       const token = localStorage.getItem('token')
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/reminders/set`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/reminder/set`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -233,18 +235,21 @@ export default function Journey() {
         },
         body: JSON.stringify({ enabled: reminderEnabled, time: reminderTime })
       })
-      if (!res.ok) throw new Error('Failed')
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.message || res.statusText)
+      }
       setReminderMsg('✅ Reminder saved!')
-    } catch {
-      setReminderMsg('❌ Failed to save reminder')
+    } catch (e) {
+      setReminderMsg(`❌ ${e.message || 'Failed to save reminder'}`)
     } finally {
       setReminderSaving(false)
       setTimeout(() => setReminderMsg(''), 3000)
     }
   }
 
-  // ── Change career ──────────────────────────────────────────────────────────
-  const handleCareerChange = async (chosenCareer) => {
+  // ── Career generation (shared by initial + change) ─────────────────────────
+  const generateJourney = async (chosenCareer, isChange = false) => {
     setGeneratingJourney(true)
     setError(null)
     try {
@@ -284,6 +289,7 @@ export default function Journey() {
       setPoints(0)
       setStreak(0)
       setShowChangePicker(false)
+      setShowInitialPicker(false)
       setExpandedPhase(0)
       setActiveTab('today')
     } catch (err) {
@@ -291,6 +297,21 @@ export default function Journey() {
     } finally {
       setGeneratingJourney(false)
     }
+  }
+
+  // ── Render: Initial career picker (no journey yet) ─────────────────────────
+  if (showInitialPicker) {
+    const result = JSON.parse(localStorage.getItem('result') || '{}')
+    return (
+      <>
+        <CareerPicker result={result} onSelect={(career) => generateJourney(career, false)} loading={generatingJourney} />
+        {error && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50">
+            ⚠️ {error}
+          </div>
+        )}
+      </>
+    )
   }
 
   // ── Loading ────────────────────────────────────────────────────────────────
@@ -305,7 +326,7 @@ export default function Journey() {
     const result = JSON.parse(localStorage.getItem('result') || '{}')
     return (
       <>
-        <CareerPicker result={result} onSelect={handleCareerChange} loading={generatingJourney} />
+        <CareerPicker result={result} onSelect={(career) => generateJourney(career, true)} loading={generatingJourney} />
         <button
           onClick={() => setShowChangePicker(false)}
           className="fixed top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl transition-all"
@@ -324,8 +345,6 @@ export default function Journey() {
   const todaySection = getTodaySection()
   const milestone = nextMilestone(streak)
   const streakPct = Math.min((streak / milestone) * 100, 100)
-
-  // Total journey days
   const totalJourneyDays = journey.roadmap.reduce((sum, p) => sum + (p.duration_days || 60), 0)
 
   return (
@@ -706,7 +725,6 @@ export default function Journey() {
                   </div>
                 )}
 
-                {/* Locked badges */}
                 {[
                   { icon: '🔥', label: 'On Fire', desc: '5 tasks' },
                   { icon: '💎', label: 'Diamond Focus', desc: '10 tasks' },
