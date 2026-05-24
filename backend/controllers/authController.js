@@ -65,13 +65,13 @@ exports.login = async (req, res) => {
 
     const [users] = await db.execute('SELECT * FROM users WHERE email = ?', [email])
     if (users.length === 0) {
-      return res.status(400).json({ message: 'Invalid email or password' })
+      return res.status(400).json({ message: 'No account found with this email' })
     }
 
     const user = users[0]
     const match = await bcrypt.compare(password, user.password)
     if (!match) {
-      return res.status(400).json({ message: 'Invalid email or password' })
+      return res.status(400).json({ message: 'Wrong password' })
     }
 
     const token = jwt.sign(

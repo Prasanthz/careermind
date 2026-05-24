@@ -124,14 +124,18 @@ export default function Register() {
 
           {error && (
             <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg mb-4 text-sm">
-              {error}
-              {error.toLowerCase().includes('already') && (
-                <span
-                  onClick={() => navigate('/login')}
-                  className="block mt-2 text-purple-400 cursor-pointer hover:underline font-semibold"
-                >
-                  → Login to your account
-                </span>
+              {error === 'Email already registered' ? (
+                <>
+                  <p>📧 This email is already registered.</p>
+                  <span
+                    onClick={() => navigate('/login')}
+                    className="block mt-2 text-purple-400 cursor-pointer hover:underline font-semibold"
+                  >
+                    → Login to your account
+                  </span>
+                </>
+              ) : (
+                <p>{error}</p>
               )}
             </div>
           )}
