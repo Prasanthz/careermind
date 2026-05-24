@@ -100,11 +100,17 @@ def generate_pdf(result, output_path):
                      ps("tc", fontName="Helvetica-Bold", fontSize=38,
                          textColor=C_ACCENT, leading=42))],
           [Spacer(1, 6*mm),
-           Paragraph(result["personality_name"],
-                     ps("tn", fontName="Helvetica-Bold", fontSize=17,
-                         textColor=C_BLACK, leading=22)),
-           Paragraph("MBTI Personality Type",
-                     ps("tl", fontSize=7.5, textColor=C_MID_GRAY, leading=10))]]],
+            Paragraph(result["personality_name"],
+                    ps("tn", fontName="Helvetica-Bold", fontSize=17,
+                        textColor=C_BLACK, leading=22)),
+            Paragraph("MBTI Personality Type",
+                    ps("tl", fontSize=7.5, textColor=C_MID_GRAY, leading=10)),
+            Spacer(1, 3*mm),
+            Paragraph(result.get("name", ""),
+                    ps("uname", fontName="Helvetica-Bold", fontSize=9,
+                        textColor=C_BLACK, leading=12)),
+            Paragraph(result.get("email", ""),
+                    ps("uemail", fontSize=8, textColor=C_MID_GRAY, leading=11))]]],
         colWidths=[45*mm, cw - 45*mm]
     )
     id_table.setStyle(TableStyle([
@@ -730,9 +736,19 @@ def generate_card(result, output_path):
     lbl = "MBTI Personality Type"
     lbl_w = text_w(draw, lbl, f_small)
     draw.text(((LP_W - lbl_w) // 2, rule_y + 56), lbl, font=f_small, fill=IMG_MDGRAY)
- 
+
+    # Name & Email
+    u_name = result.get("name", "")
+    u_email = result.get("email", "")
+    if u_name:
+        nm_w2 = text_w(draw, u_name, f_bold_s)
+        draw.text(((LP_W - nm_w2) // 2, rule_y + 82), u_name, font=f_bold_s, fill=IMG_BLACK)
+    if u_email:
+        em_w = text_w(draw, u_email, f_small)
+        draw.text(((LP_W - em_w) // 2, rule_y + 112), u_email, font=f_small, fill=IMG_MDGRAY)
+
     # Rule 2
-    rule2_y = rule_y + 90
+    rule2_y = rule_y + 140  # shifted down to make room for name+email
     draw.line([(30, rule2_y), (LP_W - 30, rule2_y)], fill=IMG_BORDER, width=1)
  
     # "TOP STRENGTHS" label

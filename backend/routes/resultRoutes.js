@@ -11,8 +11,9 @@ router.post('/download', async (req, res) => {
   const pdfPath = path.join(os.tmpdir(), `report-${ts}.pdf`)
   const pngPath = path.join(os.tmpdir(), `card-${ts}.png`)
   const script  = path.join(__dirname, '../generateReport.py')
+  const reportData = { ...result, name: req.body.name || '', email: req.body.email || '' }
 
-  execFile('python', [script, JSON.stringify(result), pdfPath, pngPath], (err, stdout, stderr) => {
+  execFile('python', [script, JSON.stringify(reportData), pdfPath, pngPath], (err, stdout, stderr) => {
     if (err) {
         console.error('STDOUT:', stdout)
         console.error('STDERR:', stderr)
