@@ -69,6 +69,15 @@ export default function Result() {
   const handleRetake = async () => {
     localStorage.removeItem('result')
     localStorage.removeItem('guestResult')
+
+    // ✅ Add these lines to clear the old journey
+    const journeyKey = getJourneyKey()
+    localStorage.removeItem(journeyKey)
+    localStorage.removeItem('completedTasks')
+    localStorage.removeItem('journeyPoints')
+    localStorage.removeItem('journeyStreak')
+    localStorage.removeItem('lastActiveDay')
+
     const token = localStorage.getItem('token')
     if (token) {
       await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/clear-result`, {
