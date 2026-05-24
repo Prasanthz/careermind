@@ -12,7 +12,7 @@ export default function Result() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    const stored = localStorage.getItem('careerResult')
+    const stored = localStorage.getItem('result')
     if (!stored) {
       navigate('/quiz')
       return

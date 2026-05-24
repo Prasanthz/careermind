@@ -149,7 +149,7 @@ export default function Journey() {
     setError(null)
 
     try {
-      const storedResult = localStorage.getItem('careerResult')
+      const storedResult = localStorage.getItem('result')
       const result = storedResult ? JSON.parse(storedResult) : {}
       const token = localStorage.getItem('token')
 
@@ -214,7 +214,7 @@ export default function Journey() {
 
   // ── Change career picker overlay ──────────────────────────────────────────
   if (showChangePicker) {
-    const storedResult = localStorage.getItem('careerResult')
+    const storedResult = localStorage.getItem('result')
     const result = storedResult ? JSON.parse(storedResult) : {}
     return (
       <>
