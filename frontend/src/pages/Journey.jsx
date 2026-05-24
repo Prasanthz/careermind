@@ -97,7 +97,8 @@ export default function Journey() {
     if (token) {
       // Try backend first
       fetch(`${import.meta.env.VITE_API_URL}/api/quiz/journey`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        signal: AbortSignal.timeout(8000)
       })
         .then(r => r.json())
         .then(data => {
