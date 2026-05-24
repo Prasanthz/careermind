@@ -1,51 +1,81 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import ReviewSubmit from '../components/ReviewSubmit'
 import CareerPicker from '../components/CareerPicker'
-
-// safely convert any value to a renderable string
-const safe = (val) => {
-  if (val === null || val === undefined) return ''
-  if (typeof val === 'string') return val
-  if (typeof val === 'number' || typeof val === 'boolean') return String(val)
-  if (Array.isArray(val)) return val.map(safe).join(', ')
-  if (typeof val === 'object') return JSON.stringify(val)
-  return String(val)
-}
-
-// safely get an array field
-const safeArr = (val) => {
-  if (!val) return []
-  if (Array.isArray(val)) return val
-  if (typeof val === 'string') return val.split(',').map(s => s.trim()).filter(Boolean)
-  return []
-}
 
 export default function Result() {
   const navigate = useNavigate()
   const [result, setResult] = useState(null)
+  const [showDownload, setShowDownload] = useState(false)
+  const [newQuestionsAvailable, setNewQuestionsAvailable] = useState(false)
   const [showCareerPicker, setShowCareerPicker] = useState(false)
   const [generatingJourney, setGeneratingJourney] = useState(false)
-  const [error, setError] = useState(null)
+  const [journeyError, setJourneyError] = useState(null)
 
-  useEffect(() => {
-    const stored = localStorage.getItem('result')
-    if (!stored) {
-      navigate('/quiz')
-      return
-    }
-    try {
-      setResult(JSON.parse(stored))
-    } catch {
-      navigate('/quiz')
-    }
-  }, [navigate])
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    localStorage.removeItem('loginExpiry')
+    localStorage.removeItem('result')
+    navigate('/login', { replace: true })
+  }
 
+  const isLoggedIn = () => {
+    const token = localStorage.getItem('token')
+    const expiry = localStorage.getItem('loginExpiry')
+    if (!token || !expiry) return false
+    if (expiry === 'never') return true
+    return Date.now() < parseInt(expiry)
+  }
+
+  const downloadPDF = async () => {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/result/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ result, type: 'pdf' })
+    })
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${result.personality_type}-CareerMind-Report.pdf`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const downloadCard = async () => {
+    const res = await fetch(`${import.meta.env.VITE_API_URL}/api/result/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ result, type: 'png' })
+    })
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${result.personality_type}-CareerMind-Card.png`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleRetake = async () => {
+    localStorage.removeItem('result')
+    localStorage.removeItem('guestResult')
+    const token = localStorage.getItem('token')
+    if (token) {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/clear-result`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+    }
+    navigate('/quiz', { replace: true })
+  }
+
+  // ── NEW: generate journey for chosen career ───────────────────────────────
   const handleCareerSelect = async (chosenCareer) => {
     setGeneratingJourney(true)
-    setError(null)
-
+    setJourneyError(null)
     try {
       const token = localStorage.getItem('token')
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/generate-journey`, {
@@ -58,18 +88,15 @@ export default function Result() {
           personality_type: result.personality_type,
           personality_name: result.personality_name,
           chosen_career: chosenCareer,
-          top_traits: safeArr(result.top_traits),
-          skills_to_learn: safeArr(result.skills_to_learn),
+          top_traits: result.top_traits || [],
+          skills_to_learn: result.skills_to_learn || [],
         }),
       })
-
       if (!res.ok) {
         const err = await res.json()
         throw new Error(err.message || 'Failed to generate journey')
       }
-
       const journeyData = await res.json()
-
       const journeyPayload = {
         chosen_career: chosenCareer,
         personality_type: result.personality_type,
@@ -78,19 +105,50 @@ export default function Result() {
         daily_schedule: journeyData.daily_schedule,
         started_at: new Date().toISOString(),
       }
-
       localStorage.setItem('journeyData', JSON.stringify(journeyPayload))
       localStorage.removeItem('completedTasks')
       localStorage.setItem('journeyPoints', '0')
       localStorage.setItem('journeyStreak', '0')
-
       navigate('/journey')
     } catch (err) {
-      setError(err.message)
+      setJourneyError(err.message)
       setGeneratingJourney(false)
     }
   }
 
+  useEffect(() => {
+    const saved = isLoggedIn()
+      ? localStorage.getItem('result')
+      : localStorage.getItem('guestResult')
+    if (!saved) {
+      navigate('/')
+      return
+    }
+    setResult(JSON.parse(saved))
+
+    const checkNewQuestions = async () => {
+      try {
+        const token = localStorage.getItem('token')
+        if (!token) return
+        const [metaRes, resultRes] = await Promise.all([
+          fetch(`${import.meta.env.VITE_API_URL}/api/quiz/meta`),
+          fetch(`${import.meta.env.VITE_API_URL}/api/quiz/latest-result`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+        ])
+        const metaData = await metaRes.json()
+        const resultData = await resultRes.json()
+        if (metaData.questions_updated_at && resultData.taken_at) {
+          const takenAt = new Date(resultData.taken_at)
+          const updatedAt = new Date(metaData.questions_updated_at)
+          if (updatedAt > takenAt) setNewQuestionsAvailable(true)
+        }
+      } catch (e) {}
+    }
+    checkNewQuestions()
+  }, [])
+
+  // ── Show CareerPicker overlay ─────────────────────────────────────────────
   if (showCareerPicker) {
     return (
       <>
@@ -99,124 +157,225 @@ export default function Result() {
           onSelect={handleCareerSelect}
           loading={generatingJourney}
         />
-        {error && (
+        <button
+          onClick={() => setShowCareerPicker(false)}
+          className="fixed top-4 left-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl transition-all"
+        >
+          ← Back
+        </button>
+        {journeyError && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50">
-            ⚠️ {error}
+            ⚠️ {journeyError}
           </div>
         )}
       </>
     )
   }
 
-  if (!result) return null
-
-  const topCareers = safeArr(result.top_careers)
-  const topTraits  = safeArr(result.top_traits)
-  const skills     = safeArr(result.skills_to_learn)
+  if (!result) return (
+    <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
+      <div className="text-center">
+        <img src="/logo.svg" alt="CareerMind AI" className="h-20 w-auto mx-auto mb-6 animate-pulse" />
+        <p className="text-purple-400 font-semibold">Loading your result...</p>
+      </div>
+    </div>
+  )
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#0f0c29] via-[#1a1a4e] to-[#24243e] p-4 py-10">
-      <div className="max-w-3xl mx-auto space-y-6">
+    <div className="min-h-screen bg-[#1A1A2E] text-white pb-20">
 
-        {/* Personality Card */}
+      {/* Header */}
+      <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-3">
+        <div className="max-w-3xl mx-auto flex justify-between items-center">
+          <img src="/logo.svg" alt="CareerMind AI" className="h-10 w-auto" />
+          <div className="flex items-center gap-2">
+            {JSON.parse(localStorage.getItem('user') || '{}').email === 'prasanths1204@gmail.com' && (
+              <button
+                onClick={() => navigate('/admin')}
+                className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 transition-all"
+              >
+                ⚙️ Admin
+              </button>
+            )}
+            <button
+              onClick={handleLogout}
+              className="text-sm text-gray-400 border border-purple-900/50 px-4 py-2 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
+            >
+              🚪 Logout
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-3xl mx-auto px-4 mt-8 space-y-6">
+
+        {/* Personality Type Card */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-white/10 backdrop-blur-md rounded-3xl p-8 border border-white/10 text-center"
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-r from-purple-900/60 to-pink-900/60 border border-purple-700/50 rounded-2xl p-8 text-center"
         >
-          <div className="text-6xl mb-3">🧠</div>
-          <h1 className="text-4xl font-bold text-white mb-1">{safe(result.personality_type)}</h1>
-          <h2 className="text-2xl text-purple-300 font-semibold mb-3">{safe(result.personality_name)}</h2>
-          <p className="text-slate-300 text-lg leading-relaxed">{safe(result.description)}</p>
+          <div className="text-6xl font-extrabold text-white mb-1">{result.personality_type}</div>
+          <div className="text-2xl font-bold text-purple-300 mb-4">{result.personality_name}</div>
+          <p className="text-gray-300 leading-relaxed">{result.description}</p>
         </motion.div>
 
-        {/* Top Careers */}
-        {topCareers.length > 0 && (
+        {/* New Questions Banner */}
+        {newQuestionsAvailable && (
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="bg-white/10 backdrop-blur-md rounded-3xl p-6 border border-white/10"
+            className="bg-yellow-500/20 border border-yellow-500/50 rounded-2xl p-4 flex items-center justify-between gap-4"
           >
-            <h3 className="text-xl font-bold text-white mb-4">🎯 Your Top Career Matches</h3>
-            <div className="space-y-2">
-              {topCareers.map((career, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
-                  <span className="text-purple-400 font-bold">#{i + 1}</span>
-                  <span className="text-white font-medium">{safe(career)}</span>
-                  {i === 0 && (
-                    <span className="ml-auto text-xs bg-purple-500/30 text-purple-300 px-2 py-1 rounded-full">
-                      Best Match
-                    </span>
-                  )}
+            <div>
+              <p className="text-yellow-400 font-semibold">🆕 New questions added!</p>
+              <p className="text-yellow-300/70 text-sm mt-0.5">Retake quiz for a more accurate result</p>
+            </div>
+            <button
+              onClick={handleRetake}
+              className="px-4 py-2 bg-yellow-500 text-black font-bold rounded-xl hover:bg-yellow-400 transition-all whitespace-nowrap text-sm"
+            >
+              Retake Now
+            </button>
+          </motion.div>
+        )}
+
+        {/* Skill Gap Analysis */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
+          className="bg-[#16213E] rounded-2xl p-6 border border-purple-900/30"
+        >
+          <h2 className="text-lg font-bold mb-4">⚡ Skill Gap Analysis</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <h3 className="text-green-400 text-sm font-semibold mb-2">✅ Skills You Have</h3>
+              <div className="space-y-1">
+                {result.skills_you_have?.map((s, i) => (
+                  <div key={i} className="text-gray-300 text-sm bg-green-900/20 px-3 py-2 rounded-lg">{s}</div>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3 className="text-orange-400 text-sm font-semibold mb-2">📖 Skills to Learn</h3>
+              <div className="space-y-1">
+                {result.skills_to_learn?.map((s, i) => (
+                  <div key={i} className="text-gray-300 text-sm bg-orange-900/20 px-3 py-2 rounded-lg">{s}</div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Roadmap */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}
+          className="bg-[#16213E] rounded-2xl p-6 border border-purple-900/30"
+        >
+          <h2 className="text-lg font-bold mb-4">🗺️ Your Learning Roadmap</h2>
+          <div className="space-y-4">
+            {result.roadmap?.map((phase, i) => (
+              <div key={i} className="flex gap-4">
+                <div className="flex flex-col items-center">
+                  <div className="w-8 h-8 bg-purple-600 rounded-full flex items-center justify-center text-sm font-bold shrink-0">{i + 1}</div>
+                  {i < result.roadmap.length - 1 && <div className="w-0.5 bg-purple-900 flex-1 mt-1" />}
                 </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* Key Strengths */}
-        {topTraits.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="bg-white/10 backdrop-blur-md rounded-3xl p-6 border border-white/10"
-          >
-            <h3 className="text-xl font-bold text-white mb-4">⚡ Your Key Strengths</h3>
-            <div className="flex flex-wrap gap-2">
-              {topTraits.map((trait, i) => (
-                <span key={i} className="px-4 py-2 bg-purple-500/20 border border-purple-500/30 text-purple-200 rounded-full text-sm font-medium">
-                  {safe(trait)}
-                </span>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* Skills to Learn */}
-        {skills.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="bg-white/10 backdrop-blur-md rounded-3xl p-6 border border-white/10"
-          >
-            <h3 className="text-xl font-bold text-white mb-4">📚 Skills to Develop</h3>
-            <div className="flex flex-wrap gap-2">
-              {skills.map((skill, i) => (
-                <span key={i} className="px-4 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-200 rounded-full text-sm font-medium">
-                  {safe(skill)}
-                </span>
-              ))}
-            </div>
-          </motion.div>
-        )}
-
-        {/* Start Journey CTA */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="bg-gradient-to-r from-purple-600/30 to-indigo-600/30 backdrop-blur-md rounded-3xl p-8 border border-purple-500/30 text-center"
-        >
-          <div className="text-4xl mb-3">🚀</div>
-          <h3 className="text-2xl font-bold text-white mb-2">Ready to Start Your Journey?</h3>
-          <p className="text-slate-300 mb-6">
-            Pick a career path and get a personalised roadmap, phase-by-phase plan, and daily schedule built just for you.
-          </p>
-          <button
-            onClick={() => setShowCareerPicker(true)}
-            className="px-10 py-4 bg-gradient-to-r from-purple-600 to-indigo-600 text-white font-bold text-xl rounded-2xl
-                       hover:from-purple-500 hover:to-indigo-500 transition-all duration-300 shadow-lg shadow-purple-500/30
-                       hover:scale-105 active:scale-95"
-          >
-            🎯 Choose My Career Path
-          </button>
+                <div className="pb-4">
+                  <div className="font-semibold text-purple-300">{phase.month}</div>
+                  <div className="text-white font-medium">{phase.goal}</div>
+                  <ul className="mt-2 space-y-1">
+                    {phase.tasks?.map((task, j) => (
+                      <li key={j} className="text-gray-400 text-sm">• {task}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
         </motion.div>
 
-        {/* Review Section */}
+        {/* Famous People + Work Style */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}
+          className="bg-[#16213E] rounded-2xl p-6 border border-purple-900/30"
+        >
+          <h2 className="text-lg font-bold mb-4">🌟 Famous People Like You</h2>
+          <div className="flex flex-wrap gap-2 mb-6">
+            {result.famous_people?.map((p, i) => (
+              <span key={i} className="bg-purple-600/20 border border-purple-600/40 text-purple-300 px-4 py-2 rounded-full text-sm">{p}</span>
+            ))}
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-[#1A1A2E] rounded-xl p-4">
+              <div className="text-purple-400 text-sm font-semibold mb-1">👥 Team Style</div>
+              <p className="text-gray-300 text-sm">{result.team_style}</p>
+            </div>
+            <div className="bg-[#1A1A2E] rounded-xl p-4">
+              <div className="text-purple-400 text-sm font-semibold mb-1">🏢 Ideal Work Environment</div>
+              <p className="text-gray-300 text-sm">{result.ideal_work_environment}</p>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Action Buttons */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
+          className="flex flex-col sm:flex-row gap-3 relative"
+        >
+          {isLoggedIn() && (
+            <button
+              onClick={handleRetake}
+              className="flex-1 py-4 border border-purple-600 rounded-xl font-semibold hover:bg-purple-600/20 transition-all"
+            >
+              🔄 Retake Quiz
+            </button>
+          )}
+
+          <div className="flex-1 relative">
+            <button
+              onClick={() => setShowDownload(!showDownload)}
+              className="w-full py-4 bg-purple-700 rounded-xl font-bold hover:scale-105 transition-transform flex items-center justify-center gap-2"
+            >
+              📥 Download
+              <span className={`transition-transform ${showDownload ? 'rotate-180' : ''}`}>▼</span>
+            </button>
+            {showDownload && (
+              <div className="absolute bottom-full mb-2 left-0 right-0 bg-[#16213E] border border-purple-700/50 rounded-xl overflow-hidden z-10 shadow-xl">
+                <button
+                  onClick={() => { downloadPDF(); setShowDownload(false) }}
+                  className="w-full py-4 px-6 text-left font-semibold hover:bg-purple-600/30 transition-all"
+                >
+                  📄 Download PDF Report
+                </button>
+                <div className="h-px bg-purple-900/50" />
+                <button
+                  onClick={() => { downloadCard(); setShowDownload(false) }}
+                  className="w-full py-4 px-6 text-left font-semibold hover:bg-purple-600/30 transition-all"
+                >
+                  🖼️ Download Image Card
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* CHANGED: Start Journey now opens CareerPicker instead of going directly to /journey */}
+          {isLoggedIn() ? (
+            <button
+              onClick={() => setShowCareerPicker(true)}
+              className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
+            >
+              🚀 Start My Journey
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/login', { replace: true })}
+              className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
+            >
+              🔐 Login to Save Result
+            </button>
+          )}
+        </motion.div>
+
         <ReviewSubmit />
+
       </div>
     </div>
   )
