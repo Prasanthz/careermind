@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import CareerPicker from '../components/CareerPicker'
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function daysSince(isoDate) {
   if (!isoDate) return 0
   const start = new Date(isoDate)
@@ -24,22 +24,41 @@ function formatDateTime() {
   return { date, time }
 }
 
-// Tasks per day
-const TASKS_PER_DAY = 3
-
-// Given a flat task list, return which tasks belong to dayNumber (1-based)
-function getTasksForDay(tasks, dayNumber) {
-  const start = (dayNumber - 1) * TASKS_PER_DAY
-  const end = start + TASKS_PER_DAY
-  return tasks.slice(start, end).map((task, i) => ({ task, taskIdx: start + i }))
+// Tasks per day — 1 task per day so a 10-task phase = 10 days, 60-task phase = 60 days
+// But AI gives ~10 tasks per phase with duration_days=60, so we spread them across duration_days
+function getTasksForDay(tasks, durationDays, dayNumber) {
+  if (!tasks || tasks.length === 0) return []
+  // Spread tasks evenly across duration_days
+  // e.g. 10 tasks, 60 days → task 1 on day 1-6, task 2 on day 7-12, etc.
+  const daysPerTask = Math.floor(durationDays / tasks.length)
+  const taskIdx = Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
+  // Return the task for today plus mark which taskIdx it is
+  return [{ task: tasks[taskIdx], taskIdx }]
 }
 
-// Total days needed to complete a phase
-function totalDaysForPhase(tasks) {
-  return Math.ceil(tasks.length / TASKS_PER_DAY)
+// Which task index is active on a given day
+function getActiveTaskIdx(tasks, durationDays, dayNumber) {
+  if (!tasks || tasks.length === 0) return 0
+  const daysPerTask = Math.floor(durationDays / tasks.length)
+  return Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// How many days have passed in previous phases
+function daysBeforePhase(roadmap, phaseIdx) {
+  let total = 0
+  for (let i = 0; i < phaseIdx; i++) {
+    total += roadmap[i]?.duration_days || 60
+  }
+  return total
+}
+
+// Streak milestones
+const STREAK_MILESTONES = [7, 14, 30, 60, 90]
+function nextMilestone(streak) {
+  return STREAK_MILESTONES.find(m => m > streak) || 100
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
 export default function Journey() {
   const navigate = useNavigate()
 
@@ -54,13 +73,20 @@ export default function Journey() {
   const [error, setError] = useState(null)
   const [dateTime, setDateTime] = useState(formatDateTime())
 
+  // Reminder state
+  const [reminderEnabled, setReminderEnabled] = useState(false)
+  const [reminderTime, setReminderTime] = useState('08:00')
+  const [reminderSaving, setReminderSaving] = useState(false)
+  const [reminderMsg, setReminderMsg] = useState('')
+  const [showReminder, setShowReminder] = useState(false)
+
   // Live clock
   useEffect(() => {
     const timer = setInterval(() => setDateTime(formatDateTime()), 60000)
     return () => clearInterval(timer)
   }, [])
 
-  // ── Load state ────────────────────────────────────────────────────────────
+  // ── Load state ─────────────────────────────────────────────────────────────
   useEffect(() => {
     const stored = localStorage.getItem('journeyData')
     if (!stored) { navigate('/result'); return }
@@ -73,9 +99,23 @@ export default function Journey() {
     setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
   }, [navigate])
 
-  // ── Streak logic ──────────────────────────────────────────────────────────
-  const updateStreak = useCallback((adding) => {
-    if (!adding) return // only update streak when adding a task, not removing
+  // Load reminder from backend
+  useEffect(() => {
+    const token = localStorage.getItem('token')
+    if (!token) return
+    fetch(`${import.meta.env.VITE_API_URL}/api/reminders/get`, {
+      headers: { Authorization: `Bearer ${token}` }
+    })
+      .then(r => r.json())
+      .then(data => {
+        setReminderEnabled(data.enabled || false)
+        setReminderTime(data.reminder_time || '08:00')
+      })
+      .catch(() => {})
+  }, [])
+
+  // ── Streak logic ───────────────────────────────────────────────────────────
+  const updateStreak = useCallback(() => {
     const todayKey = getTodayKey()
     const lastActive = localStorage.getItem('lastActiveDay')
     if (lastActive === todayKey) return
@@ -92,73 +132,62 @@ export default function Journey() {
     localStorage.setItem('lastActiveDay', todayKey)
   }, [streak])
 
-  // ── Phase / day calculations ──────────────────────────────────────────────
-  const getPhaseProgress = (phaseIdx) => {
+  // ── Phase & day calculations ───────────────────────────────────────────────
+  const getPhaseProgress = useCallback((phaseIdx) => {
     if (!journey) return 0
     const tasks = journey.roadmap[phaseIdx]?.tasks || []
     if (!tasks.length) return 0
     const done = tasks.filter((_, ti) => completedTasks[`${phaseIdx}-${ti}`]).length
     return Math.round((done / tasks.length) * 100)
-  }
+  }, [journey, completedTasks])
 
-  const getUnlockedPhase = () => {
+  const getUnlockedPhase = useCallback(() => {
     if (!journey) return 0
+    const daysElapsed = daysSince(journey.started_at)
+    let daysCounted = 0
     for (let i = 0; i < journey.roadmap.length; i++) {
-      if (getPhaseProgress(i) < 100) return i
+      const phaseDays = journey.roadmap[i]?.duration_days || 60
+      daysCounted += phaseDays
+      // Phase unlocks only after its duration AND all tasks done
+      if (daysElapsed < daysCounted) return i
     }
     return journey.roadmap.length - 1
-  }
+  }, [journey])
 
-  // Days elapsed since journey start (0-based → Day 1 = day 0)
+  // Overall journey day (Day 1 of total days)
   const daysElapsed = journey ? daysSince(journey.started_at) : 0
-  const currentDayNumber = daysElapsed + 1 // Day 1, Day 2, ...
+  const currentJourneyDay = daysElapsed + 1
 
-  // For the current phase, which day within that phase are we on?
-  const getPhaseDay = (phaseIdx) => {
+  // Phase-specific day
+  const getDayInPhase = useCallback((phaseIdx) => {
     if (!journey) return 1
-    // Count how many days were spent in previous phases
-    let daysSpentBefore = 0
-    for (let i = 0; i < phaseIdx; i++) {
-      daysSpentBefore += totalDaysForPhase(journey.roadmap[i]?.tasks || [])
-    }
-    return Math.max(1, currentDayNumber - daysSpentBefore)
-  }
+    const daysBefore = daysBeforePhase(journey.roadmap, phaseIdx)
+    return Math.max(1, currentJourneyDay - daysBefore)
+  }, [journey, currentJourneyDay])
 
-  // ── Today's tasks (locked to current day) ────────────────────────────────
-  const getTodaySection = () => {
-    if (!journey) return { phase: null, phaseIdx: 0, dayInPhase: 1, tasks: [], isLocked: false }
+  // ── Today's section ────────────────────────────────────────────────────────
+  const getTodaySection = useCallback(() => {
+    if (!journey) return null
     const unlockedPhase = getUnlockedPhase()
     const phase = journey.roadmap[unlockedPhase]
-    if (!phase) return { phase: null, phaseIdx: 0, dayInPhase: 1, tasks: [], isLocked: false }
+    if (!phase) return null
+    const duration = phase.duration_days || 60
+    const dayInPhase = Math.min(getDayInPhase(unlockedPhase), duration)
+    const todayTasks = getTasksForDay(phase.tasks, duration, dayInPhase)
+    return { phase, phaseIdx: unlockedPhase, dayInPhase, duration, todayTasks }
+  }, [journey, getUnlockedPhase, getDayInPhase])
 
-    const dayInPhase = getPhaseDay(unlockedPhase)
-    const totalDays = totalDaysForPhase(phase.tasks)
-    // Clamp to last day if we've gone beyond
-    const effectiveDay = Math.min(dayInPhase, totalDays)
-    const todayTasks = getTasksForDay(phase.tasks, effectiveDay)
-
-    return { phase, phaseIdx: unlockedPhase, dayInPhase: effectiveDay, totalDays, tasks: todayTasks }
-  }
-
-  // ── Toggle task ───────────────────────────────────────────────────────────
-  const toggleTask = (phaseIdx, taskIdx, isToday = false) => {
+  // ── Toggle task ────────────────────────────────────────────────────────────
+  const toggleTask = (phaseIdx, taskIdx, allowedByDay = true) => {
+    if (!allowedByDay) return
     const unlockedPhase = getUnlockedPhase()
-    if (phaseIdx > unlockedPhase) return // phase locked
-
-    // Day locking: in Today tab, all good. In Phases tab, check if task's day <= current day
-    if (!isToday) {
-      const phase = journey.roadmap[phaseIdx]
-      const dayInPhase = getPhaseDay(phaseIdx)
-      const taskDay = Math.floor(taskIdx / TASKS_PER_DAY) + 1
-      if (taskDay > dayInPhase) return // future day — locked
-    }
+    if (phaseIdx > unlockedPhase) return
 
     const key = `${phaseIdx}-${taskIdx}`
     const already = completedTasks[key]
     const updated = { ...completedTasks }
 
     if (already) {
-      // Unselect → decrease points, badges auto-update via state
       delete updated[key]
       const newPts = Math.max(0, points - 10)
       setPoints(newPts)
@@ -168,14 +197,14 @@ export default function Journey() {
       const newPts = points + 10
       setPoints(newPts)
       localStorage.setItem('journeyPoints', String(newPts))
-      updateStreak(true)
+      updateStreak()
     }
 
     setCompletedTasks(updated)
     localStorage.setItem('completedTasks', JSON.stringify(updated))
   }
 
-  // ── Badges (reactive — recalculated from current state) ───────────────────
+  // ── Badges (reactive) ──────────────────────────────────────────────────────
   const getBadges = () => {
     const totalDone = Object.keys(completedTasks).length
     const badges = []
@@ -184,20 +213,43 @@ export default function Journey() {
     if (totalDone >= 10) badges.push({ icon: '💎', label: 'Diamond Focus',   desc: '10 tasks done' })
     if (streak >= 3)     badges.push({ icon: '⚡', label: '3-Day Streak',    desc: 'Active 3 days in a row' })
     if (streak >= 7)     badges.push({ icon: '🏆', label: 'Weekly Warrior',  desc: '7-day streak!' })
+    if (streak >= 30)    badges.push({ icon: '🔱', label: 'Monthly Master',  desc: '30-day streak!' })
     if (points >= 100)   badges.push({ icon: '💯', label: 'Century',         desc: '100 points earned' })
     if (getPhaseProgress(0) === 100) badges.push({ icon: '🎯', label: 'Phase 1 Complete', desc: 'Finished Phase 1!' })
     return badges
   }
 
-  // ── Change career ─────────────────────────────────────────────────────────
+  // ── Save reminder ──────────────────────────────────────────────────────────
+  const saveReminder = async () => {
+    setReminderSaving(true)
+    setReminderMsg('')
+    try {
+      const token = localStorage.getItem('token')
+      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/reminders/set`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ enabled: reminderEnabled, time: reminderTime })
+      })
+      if (!res.ok) throw new Error('Failed')
+      setReminderMsg('✅ Reminder saved!')
+    } catch {
+      setReminderMsg('❌ Failed to save reminder')
+    } finally {
+      setReminderSaving(false)
+      setTimeout(() => setReminderMsg(''), 3000)
+    }
+  }
+
+  // ── Change career ──────────────────────────────────────────────────────────
   const handleCareerChange = async (chosenCareer) => {
     setGeneratingJourney(true)
     setError(null)
     try {
-      const storedResult = localStorage.getItem('result')
-      const result = storedResult ? JSON.parse(storedResult) : {}
+      const result = JSON.parse(localStorage.getItem('result') || '{}')
       const token = localStorage.getItem('token')
-
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/generate-journey`, {
         method: 'POST',
         headers: {
@@ -212,9 +264,7 @@ export default function Journey() {
           skills_to_learn: result.skills_to_learn,
         }),
       })
-
       if (!res.ok) { const e = await res.json(); throw new Error(e.message || 'Failed') }
-
       const journeyData = await res.json()
       const payload = {
         chosen_career: chosenCareer,
@@ -224,13 +274,11 @@ export default function Journey() {
         daily_schedule: journeyData.daily_schedule,
         started_at: new Date().toISOString(),
       }
-
       localStorage.setItem('journeyData', JSON.stringify(payload))
       localStorage.removeItem('completedTasks')
       localStorage.setItem('journeyPoints', '0')
       localStorage.setItem('journeyStreak', '0')
       localStorage.removeItem('lastActiveDay')
-
       setJourney(payload)
       setCompletedTasks({})
       setPoints(0)
@@ -245,14 +293,14 @@ export default function Journey() {
     }
   }
 
-  // ── Loading ───────────────────────────────────────────────────────────────
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (!journey) return (
     <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
       <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
     </div>
   )
 
-  // ── Change career overlay ─────────────────────────────────────────────────
+  // ── Change career overlay ──────────────────────────────────────────────────
   if (showChangePicker) {
     const result = JSON.parse(localStorage.getItem('result') || '{}')
     return (
@@ -261,9 +309,7 @@ export default function Journey() {
         <button
           onClick={() => setShowChangePicker(false)}
           className="fixed top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl transition-all"
-        >
-          ✕ Cancel
-        </button>
+        >✕ Cancel</button>
         {error && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50">
             ⚠️ {error}
@@ -275,7 +321,12 @@ export default function Journey() {
 
   const unlockedPhase = getUnlockedPhase()
   const badges = getBadges()
-  const { phase, phaseIdx: todayPhaseIdx, dayInPhase, totalDays, tasks: todayTasks } = getTodaySection()
+  const todaySection = getTodaySection()
+  const milestone = nextMilestone(streak)
+  const streakPct = Math.min((streak / milestone) * 100, 100)
+
+  // Total journey days
+  const totalJourneyDays = journey.roadmap.reduce((sum, p) => sum + (p.duration_days || 60), 0)
 
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white">
@@ -287,34 +338,85 @@ export default function Journey() {
             <h1 className="text-white font-bold text-lg">My Journey</h1>
             <p className="text-purple-300 text-sm">{journey.chosen_career}</p>
           </div>
-          <button
-            onClick={() => setShowChangePicker(true)}
-            className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all"
-          >
-            🔄 Change Career
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowReminder(!showReminder)}
+              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all"
+            >
+              🔔 Reminder
+            </button>
+            <button
+              onClick={() => setShowChangePicker(true)}
+              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all"
+            >
+              🔄 Change
+            </button>
+          </div>
         </div>
+
+        {/* Reminder Panel */}
+        <AnimatePresence>
+          {showReminder && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              className="max-w-2xl mx-auto mt-3 bg-[#16213E] border border-purple-900/40 rounded-xl p-4 overflow-hidden"
+            >
+              <p className="text-white font-semibold mb-3">🔔 Daily Reminder</p>
+              <div className="flex items-center gap-3 flex-wrap">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <div
+                    onClick={() => setReminderEnabled(!reminderEnabled)}
+                    className={`w-11 h-6 rounded-full transition-all relative cursor-pointer ${reminderEnabled ? 'bg-purple-600' : 'bg-gray-700'}`}
+                  >
+                    <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${reminderEnabled ? 'left-6' : 'left-1'}`} />
+                  </div>
+                  <span className="text-gray-300 text-sm">{reminderEnabled ? 'Enabled' : 'Disabled'}</span>
+                </label>
+                <input
+                  type="time"
+                  value={reminderTime}
+                  onChange={e => setReminderTime(e.target.value)}
+                  disabled={!reminderEnabled}
+                  className="bg-[#1A1A2E] border border-purple-900/50 text-white px-3 py-1.5 rounded-lg text-sm disabled:opacity-40"
+                />
+                <button
+                  onClick={saveReminder}
+                  disabled={reminderSaving}
+                  className="px-4 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg transition-all disabled:opacity-50"
+                >
+                  {reminderSaving ? 'Saving...' : 'Save'}
+                </button>
+                {reminderMsg && <span className="text-sm text-green-400">{reminderMsg}</span>}
+              </div>
+              <p className="text-gray-600 text-xs mt-2">You'll get a daily email reminder at the set time (IST)</p>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* ── Date & Time Panel ── */}
       <div className="max-w-2xl mx-auto px-4 pt-4">
         <div className="bg-[#16213E] border border-purple-900/30 rounded-2xl px-5 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <span className="text-2xl">📅</span>
             <div>
               <div className="text-white font-semibold text-sm">{dateTime.date}</div>
-              <div className="text-purple-400 text-xs">Day #{currentDayNumber} of your journey</div>
+              <div className="text-purple-400 text-xs">
+                Journey Day {currentJourneyDay} of {totalJourneyDays}
+              </div>
             </div>
           </div>
           <div className="text-right">
             <div className="text-white font-bold text-lg">{dateTime.time}</div>
-            <div className="text-gray-500 text-xs">Local time</div>
+            <div className="text-gray-500 text-xs">IST</div>
           </div>
         </div>
       </div>
 
       {/* ── Stats Bar ── */}
-      <div className="max-w-2xl mx-auto px-4 py-4">
+      <div className="max-w-2xl mx-auto px-4 py-4 space-y-3">
         <div className="grid grid-cols-3 gap-3">
           {[
             { icon: '⚡', label: 'Streak', value: `${streak}d` },
@@ -328,13 +430,33 @@ export default function Journey() {
             </div>
           ))}
         </div>
+
+        {/* Streak progress bar */}
+        <div className="bg-[#16213E] border border-purple-900/30 rounded-2xl px-4 py-3">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-gray-400 text-xs font-semibold">🔥 Streak Progress</span>
+            <span className="text-purple-400 text-xs">{streak} / {milestone} days to next badge</span>
+          </div>
+          <div className="h-2.5 bg-purple-900/30 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${streakPct}%` }}
+              transition={{ duration: 0.8, ease: 'easeOut' }}
+              className="h-full rounded-full bg-gradient-to-r from-orange-500 to-pink-500"
+            />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-gray-700 text-[10px]">0</span>
+            <span className="text-gray-700 text-[10px]">{milestone} days 🏆</span>
+          </div>
+        </div>
       </div>
 
       {/* ── Tab Nav ── */}
       <div className="max-w-2xl mx-auto px-4 mb-4">
         <div className="flex gap-1 bg-[#16213E] rounded-2xl p-1 border border-purple-900/30">
           {[
-            { key: 'today', label: "Today" },
+            { key: 'today', label: 'Today' },
             { key: 'phases', label: 'All Phases' },
             { key: 'schedule', label: 'Schedule' },
             { key: 'badges', label: 'Badges' },
@@ -343,9 +465,7 @@ export default function Journey() {
               key={key}
               onClick={() => setActiveTab(key)}
               className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
-                activeTab === key
-                  ? 'bg-purple-600 text-white shadow-md'
-                  : 'text-gray-400 hover:text-white'
+                activeTab === key ? 'bg-purple-600 text-white shadow-md' : 'text-gray-400 hover:text-white'
               }`}
             >
               {label}
@@ -358,49 +478,43 @@ export default function Journey() {
       <div className="max-w-2xl mx-auto px-4 pb-10">
         <AnimatePresence mode="wait">
 
-          {/* TODAY'S TASKS */}
-          {activeTab === 'today' && (
+          {/* TODAY */}
+          {activeTab === 'today' && todaySection && (
             <motion.div key="today" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
               <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mb-4">
-
-                {/* Day header */}
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-white font-bold text-lg">📋 Day {dayInPhase} Tasks</h2>
-                    <p className="text-gray-400 text-sm">Phase {todayPhaseIdx + 1}: {phase?.goal}</p>
+                    <h2 className="text-white font-bold text-lg">📋 Day {todaySection.dayInPhase} Tasks</h2>
+                    <p className="text-gray-400 text-sm">Phase {todaySection.phaseIdx + 1}: {todaySection.phase?.goal}</p>
                   </div>
                   <div className="text-right">
-                    <div className="text-purple-400 text-xs font-semibold">Day {dayInPhase} / {totalDays}</div>
-                    <div className="text-gray-500 text-xs mt-0.5">
-                      {todayTasks.filter(({ taskIdx }) => completedTasks[`${todayPhaseIdx}-${taskIdx}`]).length}/{todayTasks.length} done
+                    <div className="text-purple-400 text-xs font-semibold">
+                      Day {todaySection.dayInPhase} of {todaySection.duration}
+                    </div>
+                    <div className="text-gray-600 text-xs mt-0.5">
+                      {todaySection.todayTasks.filter(({ taskIdx }) => completedTasks[`${todaySection.phaseIdx}-${taskIdx}`]).length}
+                      /{todaySection.todayTasks.length} done
                     </div>
                   </div>
                 </div>
 
-                {todayTasks.length === 0 ? (
+                {todaySection.todayTasks.length === 0 ? (
                   <div className="text-center py-8">
                     <div className="text-5xl mb-3">🎉</div>
-                    <p className="text-white font-bold text-lg">Phase {todayPhaseIdx + 1} Complete!</p>
-                    <p className="text-gray-400 text-sm mt-1">
-                      {todayPhaseIdx < journey.roadmap.length - 1
-                        ? 'Phase ' + (todayPhaseIdx + 2) + ' unlocked tomorrow!'
-                        : 'You completed the entire journey! 🏆'}
-                    </p>
+                    <p className="text-white font-bold">Phase {todaySection.phaseIdx + 1} Complete!</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {todayTasks.map(({ task, taskIdx }) => {
-                      const key = `${todayPhaseIdx}-${taskIdx}`
+                    {todaySection.todayTasks.map(({ task, taskIdx }) => {
+                      const key = `${todaySection.phaseIdx}-${taskIdx}`
                       const done = !!completedTasks[key]
                       return (
                         <motion.button
                           key={key}
-                          onClick={() => toggleTask(todayPhaseIdx, taskIdx, true)}
+                          onClick={() => toggleTask(todaySection.phaseIdx, taskIdx, true)}
                           whileTap={{ scale: 0.98 }}
                           className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
-                            done
-                              ? 'border-green-500/50 bg-green-900/20'
-                              : 'border-purple-900/50 bg-[#1A1A2E] hover:border-purple-500/60'
+                            done ? 'border-green-500/50 bg-green-900/20' : 'border-purple-900/50 bg-[#1A1A2E] hover:border-purple-500/60'
                           }`}
                         >
                           <div className="flex items-start gap-3">
@@ -419,14 +533,11 @@ export default function Journey() {
                   </div>
                 )}
 
-                {/* Next day preview hint */}
-                {dayInPhase < totalDays && (
-                  <div className="mt-4 p-3 bg-purple-900/20 border border-purple-900/40 rounded-xl">
-                    <p className="text-purple-400 text-xs text-center">
-                      🔒 Day {dayInPhase + 1} tasks unlock tomorrow
-                    </p>
-                  </div>
-                )}
+                <div className="mt-4 p-3 bg-purple-900/20 border border-purple-900/40 rounded-xl">
+                  <p className="text-purple-400 text-xs text-center">
+                    🔒 Tomorrow's tasks unlock at midnight — come back daily to keep your streak!
+                  </p>
+                </div>
               </div>
             </motion.div>
           )}
@@ -438,47 +549,36 @@ export default function Journey() {
                 const progress = getPhaseProgress(phaseIdx)
                 const isLocked = phaseIdx > unlockedPhase
                 const isExpanded = expandedPhase === phaseIdx && !isLocked
-                const dayInThisPhase = getPhaseDay(phaseIdx)
-                const totalDaysPhase = totalDaysForPhase(phase.tasks)
+                const duration = phase.duration_days || 60
+                const dayInPhase = Math.min(getDayInPhase(phaseIdx), duration)
+                const activeTaskIdx = getActiveTaskIdx(phase.tasks, duration, dayInPhase)
 
                 return (
-                  <div
-                    key={phaseIdx}
-                    className={`rounded-2xl border overflow-hidden transition-all ${
-                      isLocked
-                        ? 'border-purple-900/20 bg-[#16213E] opacity-50'
-                        : phaseIdx === unlockedPhase
-                        ? 'border-purple-600/50 bg-[#16213E]'
-                        : 'border-green-900/40 bg-[#16213E]'
-                    }`}
-                  >
+                  <div key={phaseIdx} className={`rounded-2xl border overflow-hidden transition-all ${
+                    isLocked ? 'border-purple-900/20 bg-[#16213E] opacity-50'
+                    : phaseIdx === unlockedPhase ? 'border-purple-600/50 bg-[#16213E]'
+                    : 'border-green-900/40 bg-[#16213E]'
+                  }`}>
                     <button
                       onClick={() => !isLocked && setExpandedPhase(isExpanded ? -1 : phaseIdx)}
                       className="w-full p-5 text-left"
                       disabled={isLocked}
                     >
                       <div className="flex items-center gap-3">
-                        <div className="text-2xl">
-                          {isLocked ? '🔒' : progress === 100 ? '✅' : '📌'}
-                        </div>
+                        <div className="text-2xl">{isLocked ? '🔒' : progress === 100 ? '✅' : '📌'}</div>
                         <div className="flex-1">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-white font-bold">Phase {phaseIdx + 1}</span>
                             <span className="text-gray-500 text-xs">— {phase.month}</span>
-                            {isLocked && <span className="text-xs text-gray-600">Complete Phase {phaseIdx} first</span>}
+                            {isLocked && <span className="text-xs text-gray-600">Unlocks after Phase {phaseIdx}</span>}
                           </div>
                           <p className="text-gray-400 text-sm mt-0.5">{phase.goal}</p>
                         </div>
                         <div className="text-right flex-shrink-0">
-                          <div className={`font-bold ${progress === 100 ? 'text-green-400' : 'text-purple-400'}`}>
-                            {progress}%
-                          </div>
-                          {!isLocked && (
-                            <div className="text-gray-600 text-xs">Day {Math.min(dayInThisPhase, totalDaysPhase)}/{totalDaysPhase}</div>
-                          )}
+                          <div className={`font-bold ${progress === 100 ? 'text-green-400' : 'text-purple-400'}`}>{progress}%</div>
+                          {!isLocked && <div className="text-gray-600 text-xs">Day {dayInPhase}/{duration}</div>}
                         </div>
                       </div>
-
                       {!isLocked && (
                         <div className="mt-3 h-2 bg-purple-900/30 rounded-full overflow-hidden">
                           <motion.div
@@ -491,7 +591,6 @@ export default function Journey() {
                       )}
                     </button>
 
-                    {/* Expanded task list grouped by day */}
                     <AnimatePresence>
                       {isExpanded && (
                         <motion.div
@@ -500,58 +599,44 @@ export default function Journey() {
                           exit={{ height: 0, opacity: 0 }}
                           className="border-t border-purple-900/30 overflow-hidden"
                         >
-                          <div className="p-4 space-y-4">
-                            {Array.from({ length: totalDaysForPhase(phase.tasks) }).map((_, dayIdx) => {
-                              const dayNum = dayIdx + 1
-                              const dayTasks = getTasksForDay(phase.tasks, dayNum)
-                              const isPastDay = dayNum <= dayInThisPhase
-                              const isToday = dayNum === dayInThisPhase
-                              const isFutureDay = dayNum > dayInThisPhase
+                          <div className="p-4 space-y-2">
+                            {phase.tasks.map((task, taskIdx) => {
+                              const key = `${phaseIdx}-${taskIdx}`
+                              const done = !!completedTasks[key]
+                              const isActiveToday = taskIdx === activeTaskIdx
+                              const isPast = taskIdx < activeTaskIdx
+                              const isFuture = taskIdx > activeTaskIdx
+                              const canToggle = !isFuture
 
                               return (
-                                <div key={dayIdx}>
-                                  {/* Day label */}
-                                  <div className={`flex items-center gap-2 mb-2 text-xs font-bold ${
-                                    isToday ? 'text-purple-400' : isPastDay ? 'text-green-400' : 'text-gray-600'
+                                <motion.button
+                                  key={taskIdx}
+                                  onClick={() => canToggle && toggleTask(phaseIdx, taskIdx, canToggle)}
+                                  whileTap={canToggle ? { scale: 0.98 } : {}}
+                                  className={`w-full text-left p-3 rounded-xl flex items-start gap-3 transition-all ${
+                                    isFuture ? 'opacity-40 cursor-not-allowed bg-[#1A1A2E]'
+                                    : done ? 'bg-green-900/20'
+                                    : isActiveToday ? 'bg-purple-900/30 border border-purple-700/40'
+                                    : 'bg-[#1A1A2E] hover:bg-purple-900/20'
+                                  }`}
+                                >
+                                  <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                                    isFuture ? 'border-gray-700' : done ? 'border-green-500 bg-green-500' : 'border-gray-600'
                                   }`}>
-                                    {isToday ? '📍' : isPastDay ? '✅' : '🔒'} Day {dayNum}
-                                    {isToday && <span className="bg-purple-600/30 text-purple-300 px-2 py-0.5 rounded-full">Today</span>}
-                                    {isFutureDay && <span className="text-gray-700">— unlocks in {dayNum - dayInThisPhase} day(s)</span>}
+                                    {done && !isFuture && <span className="text-white text-[10px]">✓</span>}
                                   </div>
-
-                                  {dayTasks.map(({ task, taskIdx }) => {
-                                    const key = `${phaseIdx}-${taskIdx}`
-                                    const done = !!completedTasks[key]
-                                    const locked = isFutureDay
-
-                                    return (
-                                      <motion.button
-                                        key={taskIdx}
-                                        onClick={() => !locked && toggleTask(phaseIdx, taskIdx, false)}
-                                        whileTap={!locked ? { scale: 0.98 } : {}}
-                                        className={`w-full text-left p-3 rounded-xl flex items-start gap-3 mb-2 transition-all ${
-                                          locked
-                                            ? 'opacity-40 cursor-not-allowed bg-[#1A1A2E]'
-                                            : done
-                                            ? 'bg-green-900/20'
-                                            : 'bg-[#1A1A2E] hover:bg-purple-900/20'
-                                        }`}
-                                      >
-                                        <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                                          locked ? 'border-gray-700' : done ? 'border-green-500 bg-green-500' : 'border-gray-600'
-                                        }`}>
-                                          {done && !locked && <span className="text-white text-[10px]">✓</span>}
-                                          {locked && <span className="text-gray-700 text-[10px]">🔒</span>}
-                                        </div>
-                                        <span className={`text-sm ${
-                                          locked ? 'text-gray-700' : done ? 'text-green-400 line-through' : 'text-gray-300'
-                                        }`}>
-                                          {task}
-                                        </span>
-                                      </motion.button>
-                                    )
-                                  })}
-                                </div>
+                                  <div className="flex-1">
+                                    <span className={`text-sm ${
+                                      isFuture ? 'text-gray-700' : done ? 'text-green-400 line-through' : 'text-gray-300'
+                                    }`}>{task}</span>
+                                    {isActiveToday && !done && (
+                                      <span className="ml-2 text-[10px] bg-purple-600/40 text-purple-300 px-1.5 py-0.5 rounded-full">Today</span>
+                                    )}
+                                    {isFuture && (
+                                      <span className="ml-2 text-[10px] text-gray-700">🔒 future</span>
+                                    )}
+                                  </div>
+                                </motion.button>
                               )
                             })}
                           </div>
@@ -564,7 +649,7 @@ export default function Journey() {
             </motion.div>
           )}
 
-          {/* DAILY SCHEDULE */}
+          {/* SCHEDULE */}
           {activeTab === 'schedule' && (
             <motion.div key="schedule" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
               <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
@@ -604,7 +689,7 @@ export default function Journey() {
                     <p className="text-gray-500">Complete tasks to earn your first badge!</p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 mb-6">
                     {badges.map((badge, i) => (
                       <motion.div
                         key={badge.label}
@@ -621,25 +706,36 @@ export default function Journey() {
                   </div>
                 )}
 
-                {/* Locked badges preview */}
-                <div className="mt-6">
-                  <p className="text-gray-600 text-xs font-semibold mb-3">LOCKED BADGES</p>
-                  <div className="grid grid-cols-2 gap-3 opacity-30">
-                    {[
-                      { icon: '🔥', label: 'On Fire', desc: '5 tasks' },
-                      { icon: '💎', label: 'Diamond Focus', desc: '10 tasks' },
-                      { icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak' },
-                      { icon: '💯', label: 'Century', desc: '100 points' },
-                    ].filter(b => !badges.find(earned => earned.label === b.label))
-                     .map((badge, i) => (
-                      <div key={i} className="bg-[#1A1A2E] border border-gray-800 rounded-2xl p-4 text-center">
-                        <div className="text-4xl mb-2 grayscale">{badge.icon}</div>
-                        <div className="text-gray-600 font-bold text-sm">{badge.label}</div>
-                        <div className="text-gray-700 text-xs mt-1">{badge.desc}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+                {/* Locked badges */}
+                {[
+                  { icon: '🔥', label: 'On Fire', desc: '5 tasks' },
+                  { icon: '💎', label: 'Diamond Focus', desc: '10 tasks' },
+                  { icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak' },
+                  { icon: '🔱', label: 'Monthly Master', desc: '30-day streak' },
+                  { icon: '💯', label: 'Century', desc: '100 points' },
+                  { icon: '🎯', label: 'Phase 1 Complete', desc: 'Finish Phase 1' },
+                ].filter(b => !badges.find(e => e.label === b.label)).length > 0 && (
+                  <>
+                    <p className="text-gray-600 text-xs font-semibold mb-3">LOCKED BADGES</p>
+                    <div className="grid grid-cols-2 gap-3 opacity-30">
+                      {[
+                        { icon: '🔥', label: 'On Fire', desc: '5 tasks' },
+                        { icon: '💎', label: 'Diamond Focus', desc: '10 tasks' },
+                        { icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak' },
+                        { icon: '🔱', label: 'Monthly Master', desc: '30-day streak' },
+                        { icon: '💯', label: 'Century', desc: '100 points' },
+                        { icon: '🎯', label: 'Phase 1 Complete', desc: 'Finish Phase 1' },
+                      ].filter(b => !badges.find(e => e.label === b.label))
+                       .map((badge, i) => (
+                        <div key={i} className="bg-[#1A1A2E] border border-gray-800 rounded-2xl p-4 text-center">
+                          <div className="text-4xl mb-2 grayscale">{badge.icon}</div>
+                          <div className="text-gray-600 font-bold text-sm">{badge.label}</div>
+                          <div className="text-gray-700 text-xs mt-1">{badge.desc}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             </motion.div>
           )}
