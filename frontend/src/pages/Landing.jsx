@@ -26,6 +26,11 @@ export default function Landing() {
     return Date.now() < parseInt(expiry)
   }
 
+  // Navigate to quiz — demo mode if logged in (won't save result)
+  const handleTakeTest = () => {
+    navigate('/quiz', { state: { demoMode: isLoggedIn() } })
+  }
+
   const features = [
     { icon: '🧠', title: 'AI-Powered Analysis', desc: 'Advanced AI analyzes your personality with scientific accuracy' },
     { icon: '🎯', title: 'Career Matching', desc: 'Get matched with careers that perfectly fit your personality type' },
@@ -66,7 +71,7 @@ export default function Landing() {
               Login
             </button>
             <button
-              onClick={() => navigate('/quiz')}
+              onClick={handleTakeTest}
               className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-700 transition-all font-semibold"
             >
               Take Free Test
@@ -96,7 +101,7 @@ export default function Landing() {
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
             <button
-              onClick={() => navigate('/quiz')}
+              onClick={handleTakeTest}
               className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg shadow-purple-900/50"
             >
               🎯 Take Free Test Now
@@ -202,7 +207,7 @@ export default function Landing() {
             <p className="text-gray-400 mb-8">Join thousands of people who discovered their true calling</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <button
-                onClick={() => isLoggedIn() ? navigate('/result') : navigate('/login')}
+                onClick={handleTakeTest}
                 className="px-10 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-lg font-bold hover:scale-105 transition-transform shadow-lg"
               >
                 🚀 Start Free Test Now

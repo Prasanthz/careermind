@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import ReviewSubmit from '../components/ReviewSubmit'
 import CareerPicker from '../components/CareerPicker'
 
 export default function Result() {
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // demoMode = came from landing page "Take Free Test" while logged in
+  const demoMode = location.state?.demoMode || false
+
   const [result, setResult] = useState(null)
   const [showDownload, setShowDownload] = useState(false)
   const [newQuestionsAvailable, setNewQuestionsAvailable] = useState(false)
@@ -70,7 +75,7 @@ export default function Result() {
     localStorage.removeItem('result')
     localStorage.removeItem('guestResult')
 
-    // ✅ Add these lines to clear the old journey
+    // Clear old journey so CareerPicker shows fresh after retake
     const journeyKey = getJourneyKey()
     localStorage.removeItem(journeyKey)
     localStorage.removeItem('completedTasks')
@@ -86,6 +91,41 @@ export default function Result() {
       })
     }
     navigate('/quiz', { replace: true })
+  }
+
+  // Save demo result → replaces saved result, clears journey
+  const handleSaveDemoResult = async () => {
+    const demo = sessionStorage.getItem('demoResult')
+    if (!demo) return
+
+    localStorage.setItem('result', demo)
+    sessionStorage.removeItem('demoResult')
+
+    // Clear old journey so CareerPicker shows on next Start Journey
+    const journeyKey = getJourneyKey()
+    localStorage.removeItem(journeyKey)
+    localStorage.removeItem('completedTasks')
+    localStorage.removeItem('journeyPoints')
+    localStorage.removeItem('journeyStreak')
+    localStorage.removeItem('lastActiveDay')
+
+    // Clear old result from backend
+    const token = localStorage.getItem('token')
+    if (token) {
+      await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/clear-result`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      }).catch(() => {})
+    }
+
+    // Navigate to result page freshly (non-demo), now with saved result
+    navigate('/result', { replace: true })
+  }
+
+  // Discard demo result → go back to existing saved result
+  const handleDiscardDemoResult = () => {
+    sessionStorage.removeItem('demoResult')
+    navigate('/result', { replace: true })
   }
 
   const handleCareerSelect = async (chosenCareer) => {
@@ -149,14 +189,25 @@ export default function Result() {
   }
 
   useEffect(() => {
-    const saved = isLoggedIn()
-      ? localStorage.getItem('result')
-      : localStorage.getItem('guestResult')
+    let saved
+
+    if (demoMode) {
+      // Demo mode — load from sessionStorage only
+      saved = sessionStorage.getItem('demoResult')
+    } else {
+      saved = isLoggedIn()
+        ? localStorage.getItem('result')
+        : localStorage.getItem('guestResult')
+    }
+
     if (!saved) {
       navigate('/')
       return
     }
     setResult(JSON.parse(saved))
+
+    // Skip new-questions check in demo mode
+    if (demoMode) return
 
     const checkNewQuestions = async () => {
       try {
@@ -230,17 +281,49 @@ export default function Result() {
                 ⚙️ Admin
               </button>
             )}
-            <button
-              onClick={handleLogout}
-              className="text-sm text-gray-400 border border-purple-900/50 px-4 py-2 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
-            >
-              🚪 Logout
-            </button>
+            {!demoMode && (
+              <button
+                onClick={handleLogout}
+                className="text-sm text-gray-400 border border-purple-900/50 px-4 py-2 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
+              >
+                🚪 Logout
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 mt-8 space-y-6">
+      <div className="max-w-3xl mx-auto px-4 mt-6 space-y-6">
+
+        {/* ── Demo Mode Banner ── */}
+        {demoMode && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-yellow-500/10 border border-yellow-500/50 rounded-2xl p-5"
+          >
+            <p className="text-yellow-400 font-bold text-center text-lg mb-1">
+              ⚡ Demo Result — Not Saved Yet
+            </p>
+            <p className="text-yellow-300/60 text-sm text-center mb-4">
+              This is a preview only. Save it to replace your current result, or discard it to keep your old one.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={handleSaveDemoResult}
+                className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
+              >
+                💾 Save & Use This Result
+              </button>
+              <button
+                onClick={handleDiscardDemoResult}
+                className="flex-1 py-3 border border-red-500/50 text-red-400 rounded-xl font-semibold hover:bg-red-500/10 transition-all"
+              >
+                ❌ Discard — Keep My Old Result
+              </button>
+            </div>
+          </motion.div>
+        )}
 
         {/* Personality Type Card */}
         <motion.div
@@ -252,8 +335,8 @@ export default function Result() {
           <p className="text-gray-300 leading-relaxed">{result.description}</p>
         </motion.div>
 
-        {/* New Questions Banner */}
-        {newQuestionsAvailable && (
+        {/* New Questions Banner — only in normal mode */}
+        {!demoMode && newQuestionsAvailable && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
@@ -353,7 +436,8 @@ export default function Result() {
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
           className="flex flex-col sm:flex-row gap-3 relative"
         >
-          {isLoggedIn() && (
+          {/* Retake — hidden in demo mode */}
+          {!demoMode && isLoggedIn() && (
             <button
               onClick={handleRetake}
               className="flex-1 py-4 border border-purple-600 rounded-xl font-semibold hover:bg-purple-600/20 transition-all"
@@ -362,6 +446,7 @@ export default function Result() {
             </button>
           )}
 
+          {/* Download — always visible */}
           <div className="flex-1 relative">
             <button
               onClick={() => setShowDownload(!showDownload)}
@@ -389,24 +474,28 @@ export default function Result() {
             )}
           </div>
 
-          {isLoggedIn() ? (
-            <button
-              onClick={handleStartJourney}
-              className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
-            >
-              🚀 {hasJourney ? 'Continue My Journey' : 'Start My Journey'}
-            </button>
-          ) : (
-            <button
-              onClick={() => navigate('/login', { replace: true })}
-              className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
-            >
-              🔐 Login to Save Result
-            </button>
+          {/* Start Journey — hidden in demo mode */}
+          {!demoMode && (
+            isLoggedIn() ? (
+              <button
+                onClick={handleStartJourney}
+                className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
+              >
+                🚀 {hasJourney ? 'Continue My Journey' : 'Start My Journey'}
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/login', { replace: true })}
+                className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
+              >
+                🔐 Login to Save Result
+              </button>
+            )
           )}
         </motion.div>
 
-        <ReviewSubmit />
+        {/* Review — hidden in demo mode */}
+        {!demoMode && <ReviewSubmit />}
 
       </div>
     </div>

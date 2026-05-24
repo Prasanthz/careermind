@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 
-export default function Quiz({ guestMode = false }){
+export default function Quiz({ guestMode = false }) {
   const navigate = useNavigate()
+  const location = useLocation()
+
+  // demoMode = logged in user taking a test from landing page (result won't be saved)
+  const demoMode = location.state?.demoMode || false
+
   const [questions, setQuestions] = useState([])
   const [current, setCurrent] = useState(0)
   const [answers, setAnswers] = useState({})
@@ -53,20 +58,25 @@ export default function Quiz({ guestMode = false }){
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token && { Authorization: `Bearer ${token}` })
+          // In demo mode, don't send token so backend doesn't save result
+          ...(!demoMode && token && { Authorization: `Bearer ${token}` })
         },
         body: JSON.stringify({ answers: answersById, stage })
       })
 
       const data = await res.json()
 
-      if (guestMode) {
+      if (demoMode) {
+        // Demo mode — save to sessionStorage only, never persisted
+        sessionStorage.setItem('demoResult', JSON.stringify(data.result))
+        navigate('/result', { state: { demoMode: true }, replace: true })
+      } else if (guestMode) {
         localStorage.setItem('guestResult', JSON.stringify(data.result))
+        navigate('/result', { replace: true })
       } else {
         localStorage.setItem('result', JSON.stringify(data.result))
+        navigate('/result', { replace: true })
       }
-
-      navigate('/result', { replace: true })
     } catch (err) {
       alert('Error submitting. Please try again.')
     }
@@ -89,6 +99,11 @@ export default function Quiz({ guestMode = false }){
             <span className="text-5xl">🧠</span>
             <h1 className="text-2xl font-bold text-purple-400 mt-2">CareerMind AI</h1>
             <p className="text-gray-400 mt-1">First, tell us who you are</p>
+            {demoMode && (
+              <span className="inline-block mt-3 bg-yellow-500/20 text-yellow-400 border border-yellow-500/40 px-3 py-1 rounded-full text-xs font-semibold">
+                ⚡ Demo Mode — result won't replace your saved result
+              </span>
+            )}
           </div>
           <div className="bg-[#16213E] rounded-2xl p-8 border border-purple-900/30">
             <h2 className="text-xl font-bold mb-6 text-center">I am a...</h2>
@@ -135,6 +150,18 @@ export default function Quiz({ guestMode = false }){
 
   return (
     <div className="min-h-screen bg-[#1A1A2E] flex flex-col px-4 py-8">
+
+      {/* Demo mode top banner */}
+      {demoMode && (
+        <div className="max-w-lg mx-auto w-full mb-4">
+          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl px-4 py-2 text-center">
+            <span className="text-yellow-400 text-xs font-semibold">
+              ⚡ Demo Mode — this result won't replace your saved result
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="max-w-lg mx-auto w-full mb-8">
         <div className="flex justify-between items-center mb-3">
           <span className="text-purple-400 font-semibold text-sm">

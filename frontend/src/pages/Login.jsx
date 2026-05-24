@@ -117,6 +117,17 @@ export default function Login() {
           {error && (
             <div className="bg-red-500/20 border border-red-500/50 text-red-400 px-4 py-3 rounded-lg mb-4 text-sm">
               {error}
+              {(error.toLowerCase().includes('not found') ||
+                error.toLowerCase().includes('no account') ||
+                error.toLowerCase().includes('invalid') ||
+                error.toLowerCase().includes('user')) && (
+                <span
+                  onClick={() => navigate('/register')}
+                  className="block mt-2 text-purple-400 cursor-pointer hover:underline font-semibold"
+                >
+                  → Create a new account
+                </span>
+              )}
             </div>
           )}
 
