@@ -60,31 +60,33 @@ export default function Journey() {
   const [streak, setStreak] = useState(0)
   const [activeTab, setActiveTab] = useState('today')
   const [showChangePicker, setShowChangePicker] = useState(false)
-  // FIX: showInitialPicker — shown when no journeyData exists yet
   const [showInitialPicker, setShowInitialPicker] = useState(false)
   const [loadingJourney, setLoadingJourney] = useState(true)
   const [generatingJourney, setGeneratingJourney] = useState(false)
   const [expandedPhase, setExpandedPhase] = useState(0)
   const [error, setError] = useState(null)
   const [dateTime, setDateTime] = useState(formatDateTime())
-
   const [reminderEnabled, setReminderEnabled] = useState(false)
   const [reminderTime, setReminderTime] = useState('08:00')
   const [reminderSaving, setReminderSaving] = useState(false)
   const [reminderMsg, setReminderMsg] = useState('')
   const [showReminder, setShowReminder] = useState(false)
 
+  const getLocalKey = () => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}')
+    return user?.id ? `journeyData_${user.id}` : 'journeyData'
+  }
+
+  // Clock tick
   useEffect(() => {
     const timer = setInterval(() => setDateTime(formatDateTime()), 60000)
     return () => clearInterval(timer)
   }, [])
 
-  // ── Load state ─────────────────────────────────────────────────────────────
-  // FIX: instead of navigate('/result') when no journey, show CareerPicker
+  // Load journey
   useEffect(() => {
     const token = localStorage.getItem('token')
-    const user = JSON.parse(localStorage.getItem('user') || '{}')
-    const localKey = user?.id ? `journeyData_${user.id}` : 'journeyData'
+    const localKey = getLocalKey()
 
     const applyJourney = (parsed) => {
       setJourney(parsed)
@@ -94,13 +96,11 @@ export default function Journey() {
       setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
     }
 
-    // Step 1 — load from localStorage INSTANTLY (no spinner)
     const stored = localStorage.getItem(localKey)
     if (stored) {
       try {
         applyJourney(JSON.parse(stored))
         setLoadingJourney(false)
-        // Step 2 — sync with DB in background (silent)
         if (token) {
           fetch(`${import.meta.env.VITE_API_URL}/api/quiz/journey`, {
             headers: { Authorization: `Bearer ${token}` }
@@ -108,9 +108,13 @@ export default function Journey() {
             .then(r => r.json())
             .then(data => {
               if (data.journey) {
-                localStorage.setItem(localKey, JSON.stringify(data.journey))
+                const local = JSON.parse(localStorage.getItem(localKey) || '{}')
+                const dbNewer = new Date(data.journey.started_at) > new Date(local.started_at || 0)
+                if (dbNewer) {
+                  localStorage.setItem(localKey, JSON.stringify(data.journey))
+                  applyJourney(data.journey)
+                }
               } else {
-                // Save localStorage journey to DB silently
                 fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -121,10 +125,9 @@ export default function Journey() {
             .catch(() => {})
         }
         return
-      } catch { }
+      } catch {}
     }
 
-    // Step 3 — no localStorage, try DB
     if (token) {
       fetch(`${import.meta.env.VITE_API_URL}/api/quiz/journey`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -149,8 +152,7 @@ export default function Journey() {
     }
   }, [])
 
-  // Load reminder from backend
-  // FIX: correct route /api/reminder/get (no 's')
+  // Load reminder
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) return
@@ -165,25 +167,21 @@ export default function Journey() {
       .catch(() => {})
   }, [])
 
-  // ── Streak logic ───────────────────────────────────────────────────────────
+  // Streak
   const updateStreak = useCallback(() => {
     const todayKey = getTodayKey()
     const lastActive = localStorage.getItem('lastActiveDay')
     if (lastActive === todayKey) return
-
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
     const yesterdayKey = yesterday.toISOString().split('T')[0]
-
-    let newStreak = 1
-    if (lastActive === yesterdayKey) newStreak = streak + 1
-
+    const newStreak = lastActive === yesterdayKey ? streak + 1 : 1
     setStreak(newStreak)
     localStorage.setItem('journeyStreak', String(newStreak))
     localStorage.setItem('lastActiveDay', todayKey)
   }, [streak])
 
-  // ── Phase & day calculations ───────────────────────────────────────────────
+  // Phase helpers
   const getPhaseProgress = useCallback((phaseIdx) => {
     if (!journey) return 0
     const tasks = journey.roadmap[phaseIdx]?.tasks || []
@@ -213,7 +211,6 @@ export default function Journey() {
     return Math.max(1, currentJourneyDay - daysBefore)
   }, [journey, currentJourneyDay])
 
-  // ── Today's section ────────────────────────────────────────────────────────
   const getTodaySection = useCallback(() => {
     if (!journey) return null
     const unlockedPhase = getUnlockedPhase()
@@ -225,16 +222,14 @@ export default function Journey() {
     return { phase, phaseIdx: unlockedPhase, dayInPhase, duration, todayTasks }
   }, [journey, getUnlockedPhase, getDayInPhase])
 
-  // ── Toggle task ────────────────────────────────────────────────────────────
+  // Toggle task
   const toggleTask = (phaseIdx, taskIdx, allowedByDay = true) => {
     if (!allowedByDay) return
     const unlockedPhase = getUnlockedPhase()
     if (phaseIdx > unlockedPhase) return
-
     const key = `${phaseIdx}-${taskIdx}`
     const already = completedTasks[key]
     const updated = { ...completedTasks }
-
     if (already) {
       delete updated[key]
       const newPts = Math.max(0, points - 10)
@@ -247,28 +242,26 @@ export default function Journey() {
       localStorage.setItem('journeyPoints', String(newPts))
       updateStreak()
     }
-
     setCompletedTasks(updated)
     localStorage.setItem('completedTasks', JSON.stringify(updated))
   }
 
-  // ── Badges ─────────────────────────────────────────────────────────────────
+  // Badges
   const getBadges = () => {
     const totalDone = Object.keys(completedTasks).length
     const badges = []
-    if (totalDone >= 1)  badges.push({ icon: '🌱', label: 'First Step',      desc: 'Completed your first task' })
-    if (totalDone >= 5)  badges.push({ icon: '🔥', label: 'On Fire',         desc: '5 tasks completed' })
-    if (totalDone >= 10) badges.push({ icon: '💎', label: 'Diamond Focus',   desc: '10 tasks done' })
-    if (streak >= 3)     badges.push({ icon: '⚡', label: '3-Day Streak',    desc: 'Active 3 days in a row' })
-    if (streak >= 7)     badges.push({ icon: '🏆', label: 'Weekly Warrior',  desc: '7-day streak!' })
-    if (streak >= 30)    badges.push({ icon: '🔱', label: 'Monthly Master',  desc: '30-day streak!' })
-    if (points >= 100)   badges.push({ icon: '💯', label: 'Century',         desc: '100 points earned' })
+    if (totalDone >= 1)  badges.push({ icon: '🌱', label: 'First Step',     desc: 'Completed your first task' })
+    if (totalDone >= 5)  badges.push({ icon: '🔥', label: 'On Fire',        desc: '5 tasks completed' })
+    if (totalDone >= 10) badges.push({ icon: '💎', label: 'Diamond Focus',  desc: '10 tasks done' })
+    if (streak >= 3)     badges.push({ icon: '⚡', label: '3-Day Streak',   desc: 'Active 3 days in a row' })
+    if (streak >= 7)     badges.push({ icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak!' })
+    if (streak >= 30)    badges.push({ icon: '🔱', label: 'Monthly Master', desc: '30-day streak!' })
+    if (points >= 100)   badges.push({ icon: '💯', label: 'Century',        desc: '100 points earned' })
     if (getPhaseProgress(0) === 100) badges.push({ icon: '🎯', label: 'Phase 1 Complete', desc: 'Finished Phase 1!' })
     return badges
   }
 
-  // ── Save reminder ──────────────────────────────────────────────────────────
-  // FIX: correct route /api/reminder/set (no 's'), and token from localStorage
+  // Save reminder
   const saveReminder = async () => {
     setReminderSaving(true)
     setReminderMsg('')
@@ -276,10 +269,7 @@ export default function Journey() {
       const token = localStorage.getItem('token')
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/reminder/set`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ enabled: reminderEnabled, time: reminderTime })
       })
       if (!res.ok) {
@@ -295,8 +285,8 @@ export default function Journey() {
     }
   }
 
-  // ── Career generation (shared by initial + change) ─────────────────────────
-  const generateJourney = async (chosenCareer, isChange = false) => {
+  // Generate journey (initial or change)
+  const generateJourney = async (chosenCareer) => {
     setGeneratingJourney(true)
     setError(null)
     try {
@@ -326,17 +316,12 @@ export default function Journey() {
         daily_schedule: journeyData.daily_schedule,
         started_at: new Date().toISOString(),
       }
-      const user = JSON.parse(localStorage.getItem('user') || '{}')
-      const key = user?.id ? `journeyData_${user.id}` : 'journeyData'
+      const key = getLocalKey()
       localStorage.setItem(key, JSON.stringify(payload))
-      // Save to backend
       if (token) {
         fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`
-          },
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ journey: payload })
         }).catch(() => {})
       }
@@ -359,7 +344,7 @@ export default function Journey() {
     }
   }
 
-  // ── Loading ────────────────────────────────────────────────────────────────
+  // ── Early returns ──────────────────────────────────────────────────────────
   if (loadingJourney) return (
     <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
       <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
@@ -370,7 +355,7 @@ export default function Journey() {
     const result = JSON.parse(localStorage.getItem('result') || '{}')
     return (
       <>
-        <CareerPicker result={result} onSelect={(career) => generateJourney(career, false)} loading={generatingJourney} />
+        <CareerPicker result={result} onSelect={generateJourney} loading={generatingJourney} />
         {error && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50">
             ⚠️ {error}
@@ -380,16 +365,17 @@ export default function Journey() {
     )
   }
 
-  // ── Change career overlay ──────────────────────────────────────────────────
   if (showChangePicker) {
     const result = JSON.parse(localStorage.getItem('result') || '{}')
     return (
       <>
-        <CareerPicker result={result} onSelect={(career) => generateJourney(career, true)} loading={generatingJourney} />
+        <CareerPicker result={result} onSelect={generateJourney} loading={generatingJourney} />
         <button
           onClick={() => setShowChangePicker(false)}
           className="fixed top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl transition-all"
-        >✕ Cancel</button>
+        >
+          ✕ Cancel
+        </button>
         {error && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50">
             ⚠️ {error}
@@ -406,10 +392,20 @@ export default function Journey() {
   const streakPct = Math.min((streak / milestone) * 100, 100)
   const totalJourneyDays = journey.roadmap.reduce((sum, p) => sum + (p.duration_days || 60), 0)
 
+  const ALL_BADGES = [
+    { icon: '🔥', label: 'On Fire',        desc: '5 tasks' },
+    { icon: '💎', label: 'Diamond Focus',  desc: '10 tasks' },
+    { icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak' },
+    { icon: '🔱', label: 'Monthly Master', desc: '30-day streak' },
+    { icon: '💯', label: 'Century',        desc: '100 points' },
+    { icon: '🎯', label: 'Phase 1 Complete', desc: 'Finish Phase 1' },
+  ]
+  const lockedBadges = ALL_BADGES.filter(b => !badges.find(e => e.label === b.label))
+
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white">
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-3">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div>
@@ -417,21 +413,19 @@ export default function Journey() {
             <p className="text-purple-300 text-sm">{journey.chosen_career}</p>
           </div>
           <div className="flex items-center gap-2">
-          {/* Profile avatar */}
-          <button
-            onClick={() => navigate('/profile')}
-            className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center font-bold text-sm border-2 border-purple-500 overflow-hidden"
-          >
-            {(() => {
-              const u = JSON.parse(localStorage.getItem('user') || '{}')
-              return u?.profile_pic
-                ? <img src={u.profile_pic} alt="profile" className="w-full h-full object-cover" />
-                : (u?.name?.[0]?.toUpperCase() || '?')
-            })()}
-          </button>
-
-          <button
-            onClick={() => setShowReminder(!showReminder)}
+            <button
+              onClick={() => navigate('/profile')}
+              className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center font-bold text-sm border-2 border-purple-500 overflow-hidden"
+            >
+              {(() => {
+                const u = JSON.parse(localStorage.getItem('user') || '{}')
+                return u?.profile_pic
+                  ? <img src={u.profile_pic} alt="profile" className="w-full h-full object-cover" />
+                  : (u?.name?.[0]?.toUpperCase() || '?')
+              })()}
+            </button>
+            <button
+              onClick={() => setShowReminder(!showReminder)}
               className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all"
             >
               🔔 Reminder
@@ -498,16 +492,14 @@ export default function Journey() {
         </AnimatePresence>
       </div>
 
-      {/* ── Date & Time Panel ── */}
+      {/* Date & Time */}
       <div className="max-w-2xl mx-auto px-4 pt-4">
         <div className="bg-[#16213E] border border-purple-900/30 rounded-2xl px-5 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-2xl">📅</span>
             <div>
               <div className="text-white font-semibold text-sm">{dateTime.date}</div>
-              <div className="text-purple-400 text-xs">
-                Journey Day {currentJourneyDay} of {totalJourneyDays}
-              </div>
+              <div className="text-purple-400 text-xs">Journey Day {currentJourneyDay} of {totalJourneyDays}</div>
             </div>
           </div>
           <div className="text-right">
@@ -517,7 +509,7 @@ export default function Journey() {
         </div>
       </div>
 
-      {/* ── Stats Bar ── */}
+      {/* Stats */}
       <div className="max-w-2xl mx-auto px-4 py-4 space-y-3">
         <div className="grid grid-cols-3 gap-3">
           {[
@@ -532,8 +524,6 @@ export default function Journey() {
             </div>
           ))}
         </div>
-
-        {/* Streak progress bar */}
         <div className="bg-[#16213E] border border-purple-900/30 rounded-2xl px-4 py-3">
           <div className="flex justify-between items-center mb-2">
             <span className="text-gray-400 text-xs font-semibold">🔥 Streak Progress</span>
@@ -554,7 +544,7 @@ export default function Journey() {
         </div>
       </div>
 
-      {/* ── Tab Nav ── */}
+      {/* Tabs */}
       <div className="max-w-2xl mx-auto px-4 mb-4">
         <div className="flex gap-1 bg-[#16213E] rounded-2xl p-1 border border-purple-900/30">
           {[
@@ -576,7 +566,7 @@ export default function Journey() {
         </div>
       </div>
 
-      {/* ── Tab Content ── */}
+      {/* Tab Content */}
       <div className="max-w-2xl mx-auto px-4 pb-10">
         <AnimatePresence mode="wait">
 
@@ -590,9 +580,7 @@ export default function Journey() {
                     <p className="text-gray-400 text-sm">Phase {todaySection.phaseIdx + 1}: {todaySection.phase?.goal}</p>
                   </div>
                   <div className="text-right">
-                    <div className="text-purple-400 text-xs font-semibold">
-                      Day {todaySection.dayInPhase} of {todaySection.duration}
-                    </div>
+                    <div className="text-purple-400 text-xs font-semibold">Day {todaySection.dayInPhase} of {todaySection.duration}</div>
                     <div className="text-gray-600 text-xs mt-0.5">
                       {todaySection.todayTasks.filter(({ taskIdx }) => completedTasks[`${todaySection.phaseIdx}-${taskIdx}`]).length}
                       /{todaySection.todayTasks.length} done
@@ -706,10 +694,8 @@ export default function Journey() {
                               const key = `${phaseIdx}-${taskIdx}`
                               const done = !!completedTasks[key]
                               const isActiveToday = taskIdx === activeTaskIdx
-                              const isPast = taskIdx < activeTaskIdx
                               const isFuture = taskIdx > activeTaskIdx
                               const canToggle = !isFuture
-
                               return (
                                 <motion.button
                                   key={taskIdx}
@@ -808,26 +794,11 @@ export default function Journey() {
                   </div>
                 )}
 
-                {[
-                  { icon: '🔥', label: 'On Fire', desc: '5 tasks' },
-                  { icon: '💎', label: 'Diamond Focus', desc: '10 tasks' },
-                  { icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak' },
-                  { icon: '🔱', label: 'Monthly Master', desc: '30-day streak' },
-                  { icon: '💯', label: 'Century', desc: '100 points' },
-                  { icon: '🎯', label: 'Phase 1 Complete', desc: 'Finish Phase 1' },
-                ].filter(b => !badges.find(e => e.label === b.label)).length > 0 && (
+                {lockedBadges.length > 0 && (
                   <>
                     <p className="text-gray-600 text-xs font-semibold mb-3">LOCKED BADGES</p>
                     <div className="grid grid-cols-2 gap-3 opacity-30">
-                      {[
-                        { icon: '🔥', label: 'On Fire', desc: '5 tasks' },
-                        { icon: '💎', label: 'Diamond Focus', desc: '10 tasks' },
-                        { icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak' },
-                        { icon: '🔱', label: 'Monthly Master', desc: '30-day streak' },
-                        { icon: '💯', label: 'Century', desc: '100 points' },
-                        { icon: '🎯', label: 'Phase 1 Complete', desc: 'Finish Phase 1' },
-                      ].filter(b => !badges.find(e => e.label === b.label))
-                       .map((badge, i) => (
+                      {lockedBadges.map((badge, i) => (
                         <div key={i} className="bg-[#1A1A2E] border border-gray-800 rounded-2xl p-4 text-center">
                           <div className="text-4xl mb-2 grayscale">{badge.icon}</div>
                           <div className="text-gray-600 font-bold text-sm">{badge.label}</div>

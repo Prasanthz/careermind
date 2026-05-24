@@ -13,20 +13,25 @@ export default function Result() {
   const [generatingJourney, setGeneratingJourney] = useState(false)
   const [journeyError, setJourneyError] = useState(null)
 
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    localStorage.removeItem('loginExpiry')
-    localStorage.removeItem('result')
-    navigate('/login', { replace: true })
-  }
-
   const isLoggedIn = () => {
     const token = localStorage.getItem('token')
     const expiry = localStorage.getItem('loginExpiry')
     if (!token || !expiry) return false
     if (expiry === 'never') return true
     return Date.now() < parseInt(expiry)
+  }
+
+  const getJourneyKey = () => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}')
+    return user?.id ? `journeyData_${user.id}` : 'journeyData'
+  }
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    localStorage.removeItem('user')
+    localStorage.removeItem('loginExpiry')
+    localStorage.removeItem('result')
+    navigate('/login', { replace: true })
   }
 
   const downloadPDF = async () => {
@@ -72,7 +77,6 @@ export default function Result() {
     navigate('/quiz', { replace: true })
   }
 
-  // ── NEW: generate journey for chosen career ───────────────────────────────
   const handleCareerSelect = async (chosenCareer) => {
     setGeneratingJourney(true)
     setJourneyError(null)
@@ -105,14 +109,31 @@ export default function Result() {
         daily_schedule: journeyData.daily_schedule,
         started_at: new Date().toISOString(),
       }
-      localStorage.setItem('journeyData', JSON.stringify(journeyPayload))
+      const key = getJourneyKey()
+      localStorage.setItem(key, JSON.stringify(journeyPayload))
       localStorage.removeItem('completedTasks')
       localStorage.setItem('journeyPoints', '0')
       localStorage.setItem('journeyStreak', '0')
+      if (token) {
+        fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ journey: journeyPayload })
+        }).catch(() => {})
+      }
       navigate('/journey')
     } catch (err) {
       setJourneyError(err.message)
       setGeneratingJourney(false)
+    }
+  }
+
+  const handleStartJourney = () => {
+    const existing = localStorage.getItem(getJourneyKey())
+    if (existing) {
+      navigate('/journey')
+    } else {
+      setShowCareerPicker(true)
     }
   }
 
@@ -148,7 +169,6 @@ export default function Result() {
     checkNewQuestions()
   }, [])
 
-  // ── Show CareerPicker overlay ─────────────────────────────────────────────
   if (showCareerPicker) {
     return (
       <>
@@ -180,6 +200,8 @@ export default function Result() {
       </div>
     </div>
   )
+
+  const hasJourney = !!localStorage.getItem(getJourneyKey())
 
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white pb-20">
@@ -356,21 +378,9 @@ export default function Result() {
             )}
           </div>
 
-          // Replace the Start My Journey button (bottom of the file) with this:
           {isLoggedIn() ? (
             <button
-              onClick={() => {
-                const user = JSON.parse(localStorage.getItem('user') || '{}')
-                const key = user?.id ? `journeyData_${user.id}` : 'journeyData'
-                const hasJourney = !!localStorage.getItem(key)
-                if (hasJourney) {
-                  // Already has a journey → go directly
-                  navigate('/journey')
-                } else {
-                  // No journey yet → pick a career first
-                  setShowCareerPicker(true)
-                }
-              }}
+              onClick={handleStartJourney}
               className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
             >
               🚀 {hasJourney ? 'Continue My Journey' : 'Start My Journey'}
