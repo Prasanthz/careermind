@@ -113,7 +113,7 @@ export default function Landing() {
               { num: testedCount !== null ? testedCount.toLocaleString() : '...', label: 'People Tested' },
               { num: '16', label: 'Personality Types' },
               { num: '48+', label: 'Career Paths' },
-              { num: '100%', label: 'Free Forever' },
+              { num: '100%', label: 'Free Test' },
             ].map((stat, i) => (
               <div key={i} className="text-center">
                 <div className="text-3xl font-extrabold text-purple-400">{stat.num}</div>
