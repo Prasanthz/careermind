@@ -255,11 +255,11 @@ export default function Profile() {
             {/* Phone with country code */}
             <div>
               <label className="text-gray-400 text-sm mb-1 block">Phone Number</label>
-              <div className="flex gap-2">
+              <div className="flex gap-2 w-full min-w-0"> {/* ✅ added w-full min-w-0 */}
                 <select
                   value={countryCode}
                   onChange={e => setCountryCode(e.target.value)}
-                  className="bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-purple-500 transition-all"
+                  className="shrink-0 w-24 bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-purple-500 transition-all"
                 >
                   {countryCodes.map(c => (
                     <option key={c.code} value={c.code}>
@@ -272,7 +272,7 @@ export default function Profile() {
                   placeholder="00000 00000"
                   value={phone}
                   onChange={e => setPhone(e.target.value)}
-                  className="flex-1 bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 transition-all"
+                  className="flex-1 min-w-0 bg-[#1A1A2E] border border-purple-900/50 rounded-xl px-4 py-3 text-white placeholder-gray-600 focus:outline-none focus:border-purple-500 transition-all"
                 />
               </div>
             </div>
