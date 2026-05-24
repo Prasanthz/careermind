@@ -356,13 +356,24 @@ export default function Result() {
             )}
           </div>
 
-          {/* CHANGED: Start Journey now opens CareerPicker instead of going directly to /journey */}
+          // Replace the Start My Journey button (bottom of the file) with this:
           {isLoggedIn() ? (
             <button
-              onClick={() => setShowCareerPicker(true)}
+              onClick={() => {
+                const user = JSON.parse(localStorage.getItem('user') || '{}')
+                const key = user?.id ? `journeyData_${user.id}` : 'journeyData'
+                const hasJourney = !!localStorage.getItem(key)
+                if (hasJourney) {
+                  // Already has a journey → go directly
+                  navigate('/journey')
+                } else {
+                  // No journey yet → pick a career first
+                  setShowCareerPicker(true)
+                }
+              }}
               className="flex-1 py-4 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl font-bold hover:scale-105 transition-transform"
             >
-              🚀 Start My Journey
+              🚀 {hasJourney ? 'Continue My Journey' : 'Start My Journey'}
             </button>
           ) : (
             <button
