@@ -62,6 +62,7 @@ export default function Journey() {
   const [showChangePicker, setShowChangePicker] = useState(false)
   // FIX: showInitialPicker — shown when no journeyData exists yet
   const [showInitialPicker, setShowInitialPicker] = useState(false)
+  const [loadingJourney, setLoadingJourney] = useState(true)
   const [generatingJourney, setGeneratingJourney] = useState(false)
   const [expandedPhase, setExpandedPhase] = useState(0)
   const [error, setError] = useState(null)
@@ -123,6 +124,7 @@ export default function Journey() {
             } else {
               setShowInitialPicker(true)
             }
+            setLoadingJourney(false)
           }
         })
         .catch(() => {
@@ -356,8 +358,14 @@ export default function Journey() {
     }
   }
 
-  // ── Render: Initial career picker (no journey yet) ─────────────────────────
-  if (showInitialPicker) {
+  // ── Loading ────────────────────────────────────────────────────────────────
+  if (loadingJourney) return (
+    <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
+      <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
+    </div>
+  )
+
+  if (!journey && showInitialPicker) {
     const result = JSON.parse(localStorage.getItem('result') || '{}')
     return (
       <>
@@ -370,13 +378,6 @@ export default function Journey() {
       </>
     )
   }
-
-  // ── Loading ────────────────────────────────────────────────────────────────
-  if (!journey) return (
-    <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
-      <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
-    </div>
-  )
 
   // ── Change career overlay ──────────────────────────────────────────────────
   if (showChangePicker) {
