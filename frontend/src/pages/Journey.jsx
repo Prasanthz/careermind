@@ -94,11 +94,40 @@ export default function Journey() {
       setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
     }
 
+    // Step 1 — load from localStorage INSTANTLY (no spinner)
+    const stored = localStorage.getItem(localKey)
+    if (stored) {
+      try {
+        applyJourney(JSON.parse(stored))
+        setLoadingJourney(false)
+        // Step 2 — sync with DB in background (silent)
+        if (token) {
+          fetch(`${import.meta.env.VITE_API_URL}/api/quiz/journey`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })
+            .then(r => r.json())
+            .then(data => {
+              if (data.journey) {
+                localStorage.setItem(localKey, JSON.stringify(data.journey))
+              } else {
+                // Save localStorage journey to DB silently
+                fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ journey: JSON.parse(stored) })
+                }).catch(() => {})
+              }
+            })
+            .catch(() => {})
+        }
+        return
+      } catch { }
+    }
+
+    // Step 3 — no localStorage, try DB
     if (token) {
-      // Try backend first
       fetch(`${import.meta.env.VITE_API_URL}/api/quiz/journey`, {
-        headers: { Authorization: `Bearer ${token}` },
-        signal: AbortSignal.timeout(8000)
+        headers: { Authorization: `Bearer ${token}` }
       })
         .then(r => r.json())
         .then(data => {
@@ -106,46 +135,17 @@ export default function Journey() {
             localStorage.setItem(localKey, JSON.stringify(data.journey))
             applyJourney(data.journey)
           } else {
-            // No journey in DB — check localStorage
-            const stored = localStorage.getItem(localKey)
-            if (stored) {
-              try {
-                const parsed = JSON.parse(stored)
-                applyJourney(parsed)
-                // Auto-save existing localStorage journey to DB
-                fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`
-                  },
-                  body: JSON.stringify({ journey: parsed })
-                }).catch(() => {})
-              } catch { setShowInitialPicker(true) }
-            } else {
-              setShowInitialPicker(true)
-            }
-            setLoadingJourney(false)
-          }
-        })
-        .catch(() => {
-          // Network error — fall back to localStorage
-          const stored = localStorage.getItem(localKey)
-          if (stored) {
-            try { applyJourney(JSON.parse(stored)) }
-            catch { setShowInitialPicker(true) }
-          } else {
             setShowInitialPicker(true)
           }
+          setLoadingJourney(false)
+        })
+        .catch(() => {
+          setShowInitialPicker(true)
+          setLoadingJourney(false)
         })
     } else {
-      const stored = localStorage.getItem(localKey)
-      if (stored) {
-        try { applyJourney(JSON.parse(stored)) }
-        catch { setShowInitialPicker(true) }
-      } else {
-        setShowInitialPicker(true)
-      }
+      setShowInitialPicker(true)
+      setLoadingJourney(false)
     }
   }, [])
 
