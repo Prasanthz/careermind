@@ -15,7 +15,7 @@ export default function Quiz({ guestMode = false }) {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}')
-  const [stageSelected, setStageSelected] = useState(!!savedUser.stage)
+  const [stageSelected, setStageSelected] = useState(demoMode ? false : !!savedUser.stage)
   const [stage, setStage] = useState(savedUser.stage || '')
 
   const stages = [
