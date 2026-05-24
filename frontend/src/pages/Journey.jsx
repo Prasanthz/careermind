@@ -1,505 +1,531 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
+import CareerPicker from '../components/CareerPicker'
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function daysSince(isoDate) {
+  if (!isoDate) return 0
+  const start = new Date(isoDate)
+  const now = new Date()
+  return Math.floor((now - start) / (1000 * 60 * 60 * 24))
+}
+
+function getTodayKey() {
+  return new Date().toISOString().split('T')[0]
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function Journey() {
   const navigate = useNavigate()
-  const user = JSON.parse(localStorage.getItem('user') || '{}')
 
-  const [result, setResult] = useState(null)
-  const [completedTasks, setCompletedTasks] = useState({})
-  const [streak, setStreak] = useState(0)
+  const [journey, setJourney] = useState(null)          // journeyData from localStorage
+  const [completedTasks, setCompletedTasks] = useState({}) // { "phaseIdx-taskIdx": true }
   const [points, setPoints] = useState(0)
-  const [activePhase, setActivePhase] = useState(0)
-  const [todayDone, setTodayDone] = useState(false)
-  const [activeTab, setActiveTab] = useState('today')
+  const [streak, setStreak] = useState(0)
+  const [activeTab, setActiveTab] = useState('today')   // 'today' | 'phases' | 'schedule' | 'badges'
+  const [showChangePicker, setShowChangePicker] = useState(false)
+  const [generatingJourney, setGeneratingJourney] = useState(false)
+  const [expandedPhase, setExpandedPhase] = useState(0)
+  const [error, setError] = useState(null)
 
-  // Reminder states
-  const [reminderEnabled, setReminderEnabled] = useState(false)
-  const [reminderTime, setReminderTime] = useState('08:00')
-  const [reminderSaved, setReminderSaved] = useState(false)
-
-  const handleLogout = () => {
-    localStorage.removeItem('token')
-    localStorage.removeItem('user')
-    localStorage.removeItem('loginExpiry')
-    localStorage.removeItem('result')
-    navigate('/login', { replace: true })
-  }
-
+  // ── Load state from localStorage ────────────────────────────────────────
   useEffect(() => {
-    const saved = localStorage.getItem('result')
-    if (!saved) { navigate('/result'); return }
-    setResult(JSON.parse(saved))
+    const stored = localStorage.getItem('journeyData')
+    if (!stored) { navigate('/result'); return }
 
-    const savedTasks = localStorage.getItem('completedTasks')
-    if (savedTasks) setCompletedTasks(JSON.parse(savedTasks))
-
-    const savedStreak = localStorage.getItem('streak')
-    if (savedStreak) setStreak(parseInt(savedStreak))
-
-    const savedPoints = localStorage.getItem('points')
-    if (savedPoints) setPoints(parseInt(savedPoints))
-
-    const savedPhase = localStorage.getItem('activePhase')
-    if (savedPhase) setActivePhase(parseInt(savedPhase))
-
-    const lastActive = localStorage.getItem('lastActive')
-    const today = new Date().toDateString()
-    const yesterday = new Date(Date.now() - 86400000).toDateString()
-
-    if (lastActive === today) {
-      setTodayDone(true)
-    } else if (lastActive && lastActive !== today && lastActive !== yesterday) {
-      localStorage.setItem('streak', '0')
-      setStreak(0)
+    try {
+      setJourney(JSON.parse(stored))
+    } catch {
+      navigate('/result')
     }
-  }, [])
 
-  // Load reminder settings from backend
-  useEffect(() => {
-    const token = localStorage.getItem('token')
-    if (!token) return
-    fetch(`${import.meta.env.VITE_API_URL}/api/reminder/get`, {
-      headers: { Authorization: `Bearer ${token}` }
-    })
-      .then(r => r.json())
-      .then(data => {
-        setReminderEnabled(data.enabled)
-        setReminderTime(data.reminder_time || '08:00')
-      })
-      .catch(() => {})
-  }, [])
+    const ct = localStorage.getItem('completedTasks')
+    if (ct) setCompletedTasks(JSON.parse(ct))
 
-  const saveReminder = async () => {
-    const token = localStorage.getItem('token')
-    if (!token) return
-    await fetch(`${import.meta.env.VITE_API_URL}/api/reminder/set`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ enabled: reminderEnabled, time: reminderTime })
-    })
-    setReminderSaved(true)
-    setTimeout(() => setReminderSaved(false), 2000)
-  }
+    setPoints(parseInt(localStorage.getItem('journeyPoints') || '0'))
+    setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
+  }, [navigate])
 
-  const markTodayActive = () => {
-    const today = new Date().toDateString()
-    const lastActive = localStorage.getItem('lastActive')
-    if (lastActive !== today) {
-      const newStreak = streak + 1
-      setStreak(newStreak)
-      localStorage.setItem('streak', newStreak.toString())
-      localStorage.setItem('lastActive', today)
-      setTodayDone(true)
+  // ── Streak logic ─────────────────────────────────────────────────────────
+  const updateStreak = useCallback(() => {
+    const todayKey = getTodayKey()
+    const lastActive = localStorage.getItem('lastActiveDay')
+
+    if (lastActive === todayKey) return // already counted today
+
+    const yesterday = new Date()
+    yesterday.setDate(yesterday.getDate() - 1)
+    const yesterdayKey = yesterday.toISOString().split('T')[0]
+
+    let newStreak = streak
+    if (lastActive === yesterdayKey) {
+      newStreak = streak + 1
+    } else if (lastActive && lastActive !== todayKey) {
+      newStreak = 1 // reset
+    } else {
+      newStreak = 1
     }
-  }
 
-  const toggleTask = (phaseIndex, taskIndex) => {
-    const key = `${phaseIndex}-${taskIndex}`
-    const updated = { ...completedTasks, [key]: !completedTasks[key] }
+    setStreak(newStreak)
+    localStorage.setItem('journeyStreak', String(newStreak))
+    localStorage.setItem('lastActiveDay', todayKey)
+  }, [streak])
+
+  // ── Toggle task completion ────────────────────────────────────────────────
+  const toggleTask = (phaseIdx, taskIdx) => {
+    // Phase locking: can only complete tasks in the first unlocked phase
+    const unlockedPhase = getUnlockedPhase()
+    if (phaseIdx > unlockedPhase) return // locked
+
+    const key = `${phaseIdx}-${taskIdx}`
+    const already = completedTasks[key]
+
+    const updated = { ...completedTasks }
+    if (already) {
+      delete updated[key]
+      setPoints((p) => { const v = Math.max(0, p - 10); localStorage.setItem('journeyPoints', v); return v })
+    } else {
+      updated[key] = true
+      const newPts = points + 10
+      setPoints(newPts)
+      localStorage.setItem('journeyPoints', String(newPts))
+      updateStreak()
+    }
+
     setCompletedTasks(updated)
     localStorage.setItem('completedTasks', JSON.stringify(updated))
-    localStorage.setItem('activePhase', phaseIndex.toString())
-
-    if (!completedTasks[key]) {
-      const newPoints = points + 10
-      setPoints(newPoints)
-      localStorage.setItem('points', newPoints.toString())
-      markTodayActive()
-    } else {
-      const newPoints = Math.max(0, points - 10)
-      setPoints(newPoints)
-      localStorage.setItem('points', newPoints.toString())
-    }
   }
 
-  const getTotalTasks = () => {
-    if (!result?.roadmap) return 0
-    return result.roadmap.reduce((sum, p) => sum + (p.tasks?.length || 0), 0)
-  }
-
-  const getCompletedCount = () => Object.values(completedTasks).filter(Boolean).length
-
-  const getProgress = () => {
-    const total = getTotalTasks()
-    if (total === 0) return 0
-    return Math.round((getCompletedCount() / total) * 100)
-  }
-
-  const getPhaseProgress = (phaseIndex, tasks) => {
-    if (!tasks?.length) return 0
-    const done = tasks.filter((_, i) => completedTasks[`${phaseIndex}-${i}`]).length
+  // ── Phase progress ────────────────────────────────────────────────────────
+  const getPhaseProgress = (phaseIdx) => {
+    if (!journey) return 0
+    const tasks = journey.roadmap[phaseIdx]?.tasks || []
+    if (tasks.length === 0) return 0
+    const done = tasks.filter((_, ti) => completedTasks[`${phaseIdx}-${ti}`]).length
     return Math.round((done / tasks.length) * 100)
   }
 
-  const getTodaySchedule = () => {
-    if (!result?.roadmap) return []
-    const startDate = localStorage.getItem('journeyStart') || new Date().toDateString()
-    if (!localStorage.getItem('journeyStart')) {
-      localStorage.setItem('journeyStart', startDate)
+  // Returns the index of the current unlocked phase (phase locking)
+  const getUnlockedPhase = () => {
+    if (!journey) return 0
+    for (let i = 0; i < journey.roadmap.length; i++) {
+      if (getPhaseProgress(i) < 100) return i
     }
-    const daysPassed = Math.floor((Date.now() - new Date(startDate).getTime()) / 86400000)
-    const dayOfWeek = new Date().toLocaleDateString('en-IN', { weekday: 'long' })
-    const dateStr = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })
-
-    const allTasks = []
-    result.roadmap.forEach((phase, pi) => {
-      phase.tasks?.forEach((task, ti) => {
-        allTasks.push({ task, phaseIndex: pi, taskIndex: ti, phase: phase.month })
-      })
-    })
-
-    const startIdx = (daysPassed * 2) % Math.max(allTasks.length, 1)
-    const todayTasks = allTasks.slice(startIdx, startIdx + 2)
-    if (todayTasks.length < 2 && allTasks.length > 0) {
-      todayTasks.push(...allTasks.slice(0, 2 - todayTasks.length))
-    }
-
-    return { todayTasks, daysPassed: daysPassed + 1, dayOfWeek, dateStr }
+    return journey.roadmap.length - 1
   }
 
-  const badges = [
-    { icon: '🎯', label: 'First Step', desc: 'Complete your first task', earned: getCompletedCount() >= 1 },
-    { icon: '⭐', label: 'On a Roll', desc: 'Complete 5 tasks', earned: getCompletedCount() >= 5 },
-    { icon: '🔥', label: '7 Day Streak', desc: 'Login 7 days in a row', earned: streak >= 7 },
-    { icon: '💪', label: 'Halfway There', desc: 'Reach 50% progress', earned: getProgress() >= 50 },
-    { icon: '🚀', label: 'Phase Master', desc: 'Complete a full phase', earned: result?.roadmap?.some((p, i) => getPhaseProgress(i, p.tasks) === 100) },
-    { icon: '🏆', label: 'Career Ready', desc: 'Complete all tasks', earned: getProgress() === 100 },
-  ]
+  // ── Today's tasks (2 per day, cycling) ───────────────────────────────────
+  const getTodayTasks = () => {
+    if (!journey) return []
+    const unlockedPhase = getUnlockedPhase()
+    const phase = journey.roadmap[unlockedPhase]
+    if (!phase) return []
 
-  const schedule = getTodaySchedule()
+    const pendingTasks = phase.tasks
+      .map((task, ti) => ({ task, phaseIdx: unlockedPhase, taskIdx: ti }))
+      .filter(({ phaseIdx, taskIdx }) => !completedTasks[`${phaseIdx}-${taskIdx}`])
 
-  if (!result) return (
-    <div className="min-h-screen bg-[#1A1A2E] flex items-center justify-center">
-      <div className="text-center">
-        <div className="text-5xl mb-4 animate-pulse">🚀</div>
-        <p className="text-purple-400 font-semibold">Loading your journey...</p>
+    return pendingTasks.slice(0, 3) // show 3 pending tasks at a time
+  }
+
+  // ── Badges ────────────────────────────────────────────────────────────────
+  const getBadges = () => {
+    const totalDone = Object.keys(completedTasks).length
+    const badges = []
+    if (totalDone >= 1) badges.push({ icon: '🌱', label: 'First Step', desc: 'Completed your first task' })
+    if (totalDone >= 5) badges.push({ icon: '🔥', label: 'On Fire', desc: '5 tasks completed' })
+    if (totalDone >= 10) badges.push({ icon: '💎', label: 'Diamond Focus', desc: '10 tasks done' })
+    if (streak >= 3) badges.push({ icon: '⚡', label: '3-Day Streak', desc: 'Active 3 days in a row' })
+    if (streak >= 7) badges.push({ icon: '🏆', label: 'Weekly Warrior', desc: '7-day streak!' })
+    if (points >= 100) badges.push({ icon: '💯', label: 'Century', desc: '100 points earned' })
+    if (getPhaseProgress(0) === 100) badges.push({ icon: '🎯', label: 'Phase 1 Complete', desc: 'Finished Phase 1!' })
+    return badges
+  }
+
+  // ── Change career ─────────────────────────────────────────────────────────
+  const handleCareerChange = async (chosenCareer) => {
+    setGeneratingJourney(true)
+    setError(null)
+
+    try {
+      const storedResult = localStorage.getItem('careerResult')
+      const result = storedResult ? JSON.parse(storedResult) : {}
+      const token = localStorage.getItem('token')
+
+      const res = await fetch('/api/quiz/generate-journey', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          personality_type: result.personality_type,
+          personality_name: result.personality_name,
+          chosen_career: chosenCareer,
+          top_traits: result.top_traits,
+          skills_to_learn: result.skills_to_learn,
+        }),
+      })
+
+      if (!res.ok) {
+        const err = await res.json()
+        throw new Error(err.message || 'Failed')
+      }
+
+      const journeyData = await res.json()
+      const payload = {
+        chosen_career: chosenCareer,
+        personality_type: result.personality_type,
+        personality_name: result.personality_name,
+        roadmap: journeyData.roadmap,
+        daily_schedule: journeyData.daily_schedule,
+        started_at: new Date().toISOString(),
+      }
+
+      localStorage.setItem('journeyData', JSON.stringify(payload))
+      localStorage.removeItem('completedTasks')
+      localStorage.setItem('journeyPoints', '0')
+      localStorage.setItem('journeyStreak', '0')
+      localStorage.removeItem('lastActiveDay')
+
+      setJourney(payload)
+      setCompletedTasks({})
+      setPoints(0)
+      setStreak(0)
+      setShowChangePicker(false)
+      setExpandedPhase(0)
+      setActiveTab('today')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setGeneratingJourney(false)
+    }
+  }
+
+  // ── Loading ───────────────────────────────────────────────────────────────
+  if (!journey) {
+    return (
+      <div className="min-h-screen bg-[#0f0c29] flex items-center justify-center">
+        <div className="w-10 h-10 border-2 border-purple-500/30 border-t-purple-500 rounded-full animate-spin" />
       </div>
-    </div>
-  )
+    )
+  }
+
+  // ── Change career picker overlay ──────────────────────────────────────────
+  if (showChangePicker) {
+    const storedResult = localStorage.getItem('careerResult')
+    const result = storedResult ? JSON.parse(storedResult) : {}
+    return (
+      <>
+        <CareerPicker
+          result={result}
+          onSelect={handleCareerChange}
+          loading={generatingJourney}
+        />
+        <button
+          onClick={() => setShowChangePicker(false)}
+          className="fixed top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl transition-all"
+        >
+          ✕ Cancel
+        </button>
+        {error && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50">
+            ⚠️ {error}
+          </div>
+        )}
+      </>
+    )
+  }
+
+  const unlockedPhase = getUnlockedPhase()
+  const todayTasks = getTodayTasks()
+  const badges = getBadges()
+  const daysActive = daysSince(journey.started_at)
 
   return (
-    <div className="min-h-screen bg-[#1A1A2E] text-white pb-20">
+    <div className="min-h-screen bg-gradient-to-br from-[#0f0c29] via-[#1a1a4e] to-[#24243e]">
 
-      {/* Header */}
-      <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-5">
-        <div className="max-w-3xl mx-auto flex justify-between items-center">
+      {/* ── Header ── */}
+      <div className="bg-white/5 backdrop-blur-md border-b border-white/10 px-4 py-4">
+        <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-bold text-purple-400">🚀 My Career Journey</h1>
-            <p className="text-gray-400 text-xs mt-0.5">{result.personality_type} — {result.personality_name}</p>
+            <h1 className="text-white font-bold text-xl">My Journey</h1>
+            <p className="text-purple-300 text-sm">{journey.chosen_career}</p>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="text-center">
-              <div className="text-orange-400 font-bold text-lg">🔥 {streak}</div>
-              <div className="text-gray-500 text-xs">streak</div>
-            </div>
-            <div className="text-center">
-              <div className="text-yellow-400 font-bold text-lg">⭐ {points}</div>
-              <div className="text-gray-500 text-xs">points</div>
-            </div>
-
-            {/* Back button */}
-            <button
-              onClick={() => navigate('/result')}
-              className="text-gray-400 text-sm border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-purple-500 transition-all"
-            >
-              ← Back
-            </button>
-
-            {/* Profile avatar */}
-            <button
-              onClick={() => navigate('/profile')}
-              className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center font-bold text-sm border-2 border-purple-500 overflow-hidden"
-            >
-              {user?.profile_pic
-                ? <img src={user.profile_pic} alt="profile" className="w-full h-full object-cover" />
-                : (user?.name?.[0]?.toUpperCase() || '?')}
-            </button>
-
-            {/* Logout */}
-            <button
-              onClick={handleLogout}
-              className="text-sm text-gray-400 border border-purple-900/50 px-3 py-1.5 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all"
-            >
-              🚪 Logout
-            </button>
-          </div>
+          <button
+            onClick={() => setShowChangePicker(true)}
+            className="text-sm text-slate-400 hover:text-white border border-white/20 hover:border-white/40 px-3 py-2 rounded-xl transition-all"
+          >
+            🔄 Change Career
+          </button>
         </div>
       </div>
 
-      {/* Overall Progress Bar */}
-      <div className="max-w-3xl mx-auto px-4 mt-4">
-        <div className="flex justify-between text-sm mb-1">
-          <span className="text-gray-400">Overall Progress</span>
-          <span className="text-purple-400 font-bold">{getProgress()}% — Day {schedule.daysPassed}</span>
-        </div>
-        <div className="w-full bg-[#16213E] rounded-full h-3">
-          <motion.div
-            className="bg-gradient-to-r from-purple-600 to-pink-600 h-3 rounded-full"
-            animate={{ width: `${getProgress()}%` }}
-            transition={{ duration: 0.6 }}
-          />
-        </div>
-      </div>
-
-      {/* Tab Navigation */}
-      <div className="max-w-3xl mx-auto px-4 mt-4">
-        <div className="flex bg-[#16213E] rounded-xl p-1 border border-purple-900/30">
+      {/* ── Stats Bar ── */}
+      <div className="max-w-2xl mx-auto px-4 py-4">
+        <div className="grid grid-cols-3 gap-3">
           {[
-            { key: 'today', label: "📅 Today's Plan" },
-            { key: 'phases', label: '📋 All Phases' },
-            { key: 'badges', label: '🏆 Badges' },
-          ].map(tab => (
+            { icon: '⚡', label: 'Streak', value: `${streak} days` },
+            { icon: '💎', label: 'Points', value: points },
+            { icon: '📅', label: 'Day', value: `#${daysActive + 1}` },
+          ].map(({ icon, label, value }) => (
+            <div key={label} className="bg-white/10 rounded-2xl p-3 text-center border border-white/10">
+              <div className="text-2xl">{icon}</div>
+              <div className="text-white font-bold text-lg">{value}</div>
+              <div className="text-slate-400 text-xs">{label}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Tab Nav ── */}
+      <div className="max-w-2xl mx-auto px-4 mb-4">
+        <div className="flex gap-1 bg-white/5 rounded-2xl p-1 border border-white/10">
+          {[
+            { key: 'today', label: "Today's Tasks" },
+            { key: 'phases', label: 'All Phases' },
+            { key: 'schedule', label: 'Schedule' },
+            { key: 'badges', label: 'Badges' },
+          ].map(({ key, label }) => (
             <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                activeTab === tab.key
-                  ? 'bg-purple-600 text-white'
-                  : 'text-gray-400 hover:text-white'
+              key={key}
+              onClick={() => setActiveTab(key)}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
+                activeTab === key
+                  ? 'bg-purple-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
-              {tab.label}
+              {label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-4 mt-4 space-y-4">
+      {/* ── Tab Content ── */}
+      <div className="max-w-2xl mx-auto px-4 pb-10">
+        <AnimatePresence mode="wait">
 
-        {/* TODAY'S PLAN TAB */}
-        {activeTab === 'today' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+          {/* TODAY'S TASKS */}
+          {activeTab === 'today' && (
+            <motion.div key="today" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <div className="bg-white/10 rounded-3xl p-5 border border-white/10 mb-4">
+                <h2 className="text-white font-bold text-lg mb-1">
+                  📋 Today's Focus
+                </h2>
+                <p className="text-slate-400 text-sm mb-4">
+                  Phase {unlockedPhase + 1}: {journey.roadmap[unlockedPhase]?.goal}
+                </p>
 
-            {/* Date + Streak Card */}
-            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mb-4">
-              <div className="flex justify-between items-start">
-                <div>
-                  <div className="text-purple-400 font-bold text-lg">{schedule.dayOfWeek}</div>
-                  <div className="text-gray-400 text-sm">{schedule.dateStr}</div>
-                  <div className="text-white font-semibold mt-1">Day {schedule.daysPassed} of your journey</div>
-                </div>
-                <div className={`px-4 py-2 rounded-xl text-sm font-bold ${todayDone ? 'bg-green-600/30 text-green-400 border border-green-600/40' : 'bg-orange-600/20 text-orange-400 border border-orange-600/30'}`}>
-                  {todayDone ? '✅ Done Today!' : '⏳ Pending'}
-                </div>
-              </div>
-              <div className="flex gap-1 mt-4">
-                {[...Array(7)].map((_, i) => (
-                  <div
-                    key={i}
-                    className={`flex-1 h-2 rounded-full ${i < (streak % 7) ? 'bg-orange-500' : 'bg-[#1A1A2E]'}`}
-                  />
-                ))}
-              </div>
-              <div className="text-gray-500 text-xs mt-1">{streak} day streak — keep going!</div>
-            </div>
-
-            {/* Today's Tasks */}
-            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mb-4">
-              <h2 className="font-bold text-lg mb-1">📌 Today's Tasks</h2>
-              <p className="text-gray-400 text-xs mb-4">Complete these to earn points and keep your streak!</p>
-              <div className="space-y-3">
-                {schedule.todayTasks?.map((item, idx) => {
-                  const key = `${item.phaseIndex}-${item.taskIndex}`
-                  const done = completedTasks[key]
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => toggleTask(item.phaseIndex, item.taskIndex)}
-                      className={`w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all ${
-                        done
-                          ? 'bg-purple-600/20 border-purple-500/50'
-                          : 'bg-[#1A1A2E] border-purple-900/20 hover:border-purple-500/50'
-                      }`}
-                    >
-                      <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 ${done ? 'bg-purple-600 border-purple-600' : 'border-gray-600'}`}>
-                        {done && <span className="text-white text-sm">✓</span>}
-                      </div>
-                      <div className="flex-1">
-                        <div className={`font-medium ${done ? 'line-through text-gray-500' : 'text-white'}`}>{item.task}</div>
-                        <div className="text-gray-500 text-xs mt-0.5">{item.phase}</div>
-                      </div>
-                      {done
-                        ? <span className="text-yellow-400 text-sm font-bold">+10 ⭐</span>
-                        : <span className="text-gray-600 text-sm">+10 ⭐</span>
-                      }
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {/* Daily Schedule */}
-            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
-              <h2 className="font-bold text-lg mb-4">🕐 Suggested Daily Schedule</h2>
-              <div className="space-y-3">
-                {[
-                  { time: '6:00 AM', task: "Morning review — read yesterday's notes", icon: '🌅' },
-                  { time: '7:00 AM', task: 'Watch 1 tutorial video (20–30 mins)', icon: '▶️' },
-                  { time: '12:00 PM', task: 'Lunch break practice — solve 1 problem', icon: '💡' },
-                  { time: '6:00 PM', task: 'Main study session (1–2 hrs)', icon: '📚' },
-                  { time: '8:00 PM', task: 'Build / code / practice project', icon: '💻' },
-                  { time: '10:00 PM', task: "Review + mark today's tasks done", icon: '✅' },
-                ].map((slot, i) => (
-                  <div key={i} className="flex items-center gap-4 bg-[#1A1A2E] rounded-xl p-3 border border-purple-900/20">
-                    <div className="text-lg">{slot.icon}</div>
-                    <div>
-                      <div className="text-purple-400 text-xs font-bold">{slot.time}</div>
-                      <div className="text-white text-sm">{slot.task}</div>
-                    </div>
+                {todayTasks.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-5xl mb-3">🎉</div>
+                    <p className="text-white font-bold text-lg">Phase {unlockedPhase + 1} Complete!</p>
+                    <p className="text-slate-400 text-sm mt-1">
+                      {unlockedPhase < journey.roadmap.length - 1
+                        ? 'Phase ' + (unlockedPhase + 2) + ' is now unlocked!'
+                        : 'You completed the entire journey! 🏆'}
+                    </p>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Daily Reminder */}
-            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mt-4">
-              <h2 className="font-bold text-lg mb-1">🔔 Daily Reminder</h2>
-              <p className="text-gray-400 text-xs mb-4">Get an email reminder to keep your streak!</p>
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-white font-medium">Enable Reminders</span>
-                <button
-                  onClick={() => setReminderEnabled(!reminderEnabled)}
-                  className={`w-12 h-6 rounded-full transition-all relative ${reminderEnabled ? 'bg-purple-600' : 'bg-gray-600'}`}
-                >
-                  <div className={`w-5 h-5 bg-white rounded-full transition-all absolute top-0.5 ${reminderEnabled ? 'left-6' : 'left-0.5'}`} />
-                </button>
-              </div>
-              {reminderEnabled && (
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="text-gray-400 text-sm">Remind me at</span>
-                  <input
-                    type="time"
-                    value={reminderTime}
-                    onChange={e => setReminderTime(e.target.value)}
-                    className="bg-[#1A1A2E] border border-purple-900/30 text-white px-3 py-2 rounded-lg"
-                  />
-                </div>
-              )}
-              <button
-                onClick={saveReminder}
-                className="w-full py-3 bg-purple-600 rounded-xl font-semibold hover:bg-purple-700 transition-all"
-              >
-                {reminderSaved ? '✅ Saved!' : '💾 Save Reminder'}
-              </button>
-            </div>
-
-          </motion.div>
-        )}
-
-        {/* ALL PHASES TAB */}
-        {activeTab === 'phases' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="flex gap-2 flex-wrap mb-4">
-              {result.roadmap?.map((phase, i) => (
-                <button
-                  key={i}
-                  onClick={() => setActivePhase(i)}
-                  className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
-                    activePhase === i
-                      ? 'bg-purple-600 text-white'
-                      : 'bg-[#16213E] text-gray-400 border border-purple-900/30 hover:border-purple-500'
-                  }`}
-                >
-                  Phase {i + 1} {getPhaseProgress(i, phase.tasks) === 100 ? '✅' : `${getPhaseProgress(i, phase.tasks)}%`}
-                </button>
-              ))}
-            </div>
-
-            {result.roadmap?.[activePhase] && (() => {
-              const phase = result.roadmap[activePhase]
-              const prog = getPhaseProgress(activePhase, phase.tasks)
-              return (
-                <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
-                  <div className="flex justify-between items-center mb-2">
-                    <div>
-                      <h3 className="font-bold text-purple-300">{phase.month}</h3>
-                      <p className="text-white font-medium">{phase.goal}</p>
-                    </div>
-                    <span className="text-purple-400 font-bold text-xl">{prog}%</span>
-                  </div>
-                  <div className="w-full bg-[#1A1A2E] rounded-full h-2 mb-5">
-                    <div className="bg-purple-600 h-2 rounded-full transition-all" style={{ width: `${prog}%` }} />
-                  </div>
+                ) : (
                   <div className="space-y-3">
-                    {phase.tasks?.map((task, j) => {
-                      const key = `${activePhase}-${j}`
-                      const done = completedTasks[key]
+                    {todayTasks.map(({ task, phaseIdx, taskIdx }) => {
+                      const key = `${phaseIdx}-${taskIdx}`
+                      const done = !!completedTasks[key]
                       return (
-                        <button
-                          key={j}
-                          onClick={() => toggleTask(activePhase, j)}
-                          className={`w-full flex items-center gap-4 p-4 rounded-xl border text-left transition-all ${
+                        <motion.button
+                          key={key}
+                          onClick={() => toggleTask(phaseIdx, taskIdx)}
+                          whileTap={{ scale: 0.98 }}
+                          className={`w-full text-left p-4 rounded-2xl border-2 transition-all ${
                             done
-                              ? 'bg-purple-600/20 border-purple-500/50'
-                              : 'bg-[#1A1A2E] border-purple-900/20 hover:border-purple-500/50'
+                              ? 'border-green-500/50 bg-green-500/10'
+                              : 'border-white/10 bg-white/5 hover:border-purple-400/40'
                           }`}
                         >
-                          <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 ${done ? 'bg-purple-600 border-purple-600' : 'border-gray-600'}`}>
-                            {done && <span className="text-white text-sm">✓</span>}
+                          <div className="flex items-start gap-3">
+                            <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                              done ? 'border-green-500 bg-green-500' : 'border-white/30'
+                            }`}>
+                              {done && <span className="text-white text-xs">✓</span>}
+                            </div>
+                            <span className={`text-sm leading-relaxed ${done ? 'text-green-300 line-through' : 'text-slate-200'}`}>
+                              {task}
+                            </span>
                           </div>
-                          <span className={`font-medium flex-1 ${done ? 'line-through text-gray-500' : 'text-white'}`}>{task}</span>
-                          {done
-                            ? <span className="text-yellow-400 text-sm font-bold">+10 ⭐</span>
-                            : <span className="text-gray-600 text-sm">+10 ⭐</span>
-                          }
-                        </button>
+                        </motion.button>
                       )
                     })}
                   </div>
-                </div>
-              )
-            })()}
-          </motion.div>
-        )}
+                )}
+              </div>
+            </motion.div>
+          )}
 
-        {/* BADGES TAB */}
-        {activeTab === 'badges' && (
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30">
-              <h2 className="font-bold text-lg mb-1">🏆 Your Badges</h2>
-              <p className="text-gray-400 text-xs mb-5">{badges.filter(b => b.earned).length} of {badges.length} earned</p>
-              <div className="grid grid-cols-2 gap-4">
-                {badges.map((badge, i) => (
+          {/* ALL PHASES */}
+          {activeTab === 'phases' && (
+            <motion.div key="phases" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-4">
+              {journey.roadmap.map((phase, phaseIdx) => {
+                const progress = getPhaseProgress(phaseIdx)
+                const isLocked = phaseIdx > unlockedPhase
+                const isExpanded = expandedPhase === phaseIdx && !isLocked
+
+                return (
                   <div
-                    key={i}
-                    className={`rounded-xl p-5 text-center border transition-all ${
-                      badge.earned
-                        ? 'bg-purple-600/20 border-purple-500/50'
-                        : 'bg-[#1A1A2E] border-purple-900/20 opacity-40'
+                    key={phaseIdx}
+                    className={`rounded-3xl border overflow-hidden transition-all ${
+                      isLocked
+                        ? 'border-white/5 bg-white/3 opacity-50'
+                        : phaseIdx === unlockedPhase
+                        ? 'border-purple-500/40 bg-purple-500/10'
+                        : 'border-green-500/30 bg-green-500/5'
                     }`}
                   >
-                    <div className="text-4xl mb-2">{badge.icon}</div>
-                    <div className="font-bold text-white text-sm">{badge.label}</div>
-                    <div className="text-gray-400 text-xs mt-1">{badge.desc}</div>
-                    {badge.earned && <div className="text-purple-400 text-xs font-semibold mt-2">✅ Earned!</div>}
+                    {/* Phase Header */}
+                    <button
+                      onClick={() => !isLocked && setExpandedPhase(isExpanded ? -1 : phaseIdx)}
+                      className="w-full p-5 text-left"
+                      disabled={isLocked}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className={`text-2xl ${isLocked ? 'grayscale' : ''}`}>
+                          {isLocked ? '🔒' : progress === 100 ? '✅' : '📌'}
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-white font-bold">Phase {phaseIdx + 1}</span>
+                            <span className="text-slate-400 text-xs">— {phase.month}</span>
+                            {isLocked && <span className="text-xs text-slate-500">Complete Phase {phaseIdx} first</span>}
+                          </div>
+                          <p className="text-slate-300 text-sm mt-0.5">{phase.goal}</p>
+                        </div>
+                        <div className="text-right">
+                          <div className={`font-bold ${progress === 100 ? 'text-green-400' : 'text-purple-300'}`}>
+                            {progress}%
+                          </div>
+                          <div className="text-slate-500 text-xs">{phase.duration_days}d</div>
+                        </div>
+                      </div>
+
+                      {/* Progress Bar */}
+                      {!isLocked && (
+                        <div className="mt-3 h-2 bg-white/10 rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${progress}%` }}
+                            transition={{ duration: 0.5 }}
+                            className={`h-full rounded-full ${progress === 100 ? 'bg-green-500' : 'bg-gradient-to-r from-purple-500 to-indigo-500'}`}
+                          />
+                        </div>
+                      )}
+                    </button>
+
+                    {/* Task List (expanded) */}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="border-t border-white/10 overflow-hidden"
+                        >
+                          <div className="p-4 space-y-2">
+                            {phase.tasks.map((task, taskIdx) => {
+                              const key = `${phaseIdx}-${taskIdx}`
+                              const done = !!completedTasks[key]
+                              return (
+                                <motion.button
+                                  key={taskIdx}
+                                  onClick={() => toggleTask(phaseIdx, taskIdx)}
+                                  whileTap={{ scale: 0.98 }}
+                                  className={`w-full text-left p-3 rounded-xl flex items-start gap-3 transition-all ${
+                                    done ? 'bg-green-500/10' : 'bg-white/5 hover:bg-white/10'
+                                  }`}
+                                >
+                                  <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                                    done ? 'border-green-500 bg-green-500' : 'border-white/30'
+                                  }`}>
+                                    {done && <span className="text-white text-[10px]">✓</span>}
+                                  </div>
+                                  <span className={`text-sm ${done ? 'text-green-300 line-through' : 'text-slate-300'}`}>
+                                    {task}
+                                  </span>
+                                </motion.button>
+                              )
+                            })}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
-                ))}
-              </div>
-            </div>
+                )
+              })}
+            </motion.div>
+          )}
 
-            {/* Points summary */}
-            <div className="bg-[#16213E] rounded-2xl p-5 border border-purple-900/30 mt-4">
-              <h2 className="font-bold text-lg mb-4">⭐ Points Summary</h2>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="bg-[#1A1A2E] rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-yellow-400">{points}</div>
-                  <div className="text-gray-400 text-xs mt-1">Total Points</div>
-                </div>
-                <div className="bg-[#1A1A2E] rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-orange-400">🔥 {streak}</div>
-                  <div className="text-gray-400 text-xs mt-1">Day Streak</div>
-                </div>
-                <div className="bg-[#1A1A2E] rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-purple-400">{getCompletedCount()}</div>
-                  <div className="text-gray-400 text-xs mt-1">Tasks Done</div>
+          {/* DAILY SCHEDULE */}
+          {activeTab === 'schedule' && (
+            <motion.div key="schedule" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <div className="bg-white/10 rounded-3xl p-5 border border-white/10">
+                <h2 className="text-white font-bold text-lg mb-1">📅 Daily Schedule</h2>
+                <p className="text-slate-400 text-sm mb-5">Tailored for: <span className="text-purple-300">{journey.chosen_career}</span></p>
+
+                <div className="space-y-3">
+                  {(journey.daily_schedule || []).map((item, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.06 }}
+                      className="flex items-center gap-4 p-4 bg-white/5 rounded-2xl border border-white/5"
+                    >
+                      <div className="text-2xl w-10 text-center">{item.icon}</div>
+                      <div>
+                        <div className="text-purple-300 text-xs font-semibold">{item.time}</div>
+                        <div className="text-white text-sm font-medium mt-0.5">{item.task}</div>
+                      </div>
+                    </motion.div>
+                  ))}
                 </div>
               </div>
-            </div>
-          </motion.div>
-        )}
+            </motion.div>
+          )}
 
+          {/* BADGES */}
+          {activeTab === 'badges' && (
+            <motion.div key="badges" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}>
+              <div className="bg-white/10 rounded-3xl p-5 border border-white/10">
+                <h2 className="text-white font-bold text-lg mb-1">🏅 Your Badges</h2>
+                <p className="text-slate-400 text-sm mb-5">{badges.length} earned so far</p>
+
+                {badges.length === 0 ? (
+                  <div className="text-center py-10">
+                    <div className="text-5xl mb-3">🌱</div>
+                    <p className="text-slate-400">Complete tasks to earn your first badge!</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {badges.map((badge, i) => (
+                      <motion.div
+                        key={badge.label}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ delay: i * 0.07, type: 'spring' }}
+                        className="bg-gradient-to-br from-purple-500/20 to-indigo-500/20 border border-purple-500/30 rounded-2xl p-4 text-center"
+                      >
+                        <div className="text-4xl mb-2">{badge.icon}</div>
+                        <div className="text-white font-bold text-sm">{badge.label}</div>
+                        <div className="text-slate-400 text-xs mt-1">{badge.desc}</div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+
+        </AnimatePresence>
       </div>
     </div>
   )

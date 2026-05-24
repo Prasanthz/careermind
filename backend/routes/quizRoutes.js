@@ -171,4 +171,117 @@ Return this exact JSON structure:
   }
 })
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ADD THIS ROUTE inside quizRoutes.js, before module.exports = router
+// ─────────────────────────────────────────────────────────────────────────────
+
+// POST /api/quiz/generate-journey
+// Generates a focused roadmap + schedule for a specific chosen career
+router.post('/generate-journey', async (req, res) => {
+  try {
+    const {
+      personality_type,
+      personality_name,
+      chosen_career,
+      top_traits,
+      skills_to_learn,
+    } = req.body
+
+    if (!chosen_career) {
+      return res.status(400).json({ message: 'chosen_career is required' })
+    }
+
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        {
+          role: 'user',
+          content: `You are a professional career coach. Generate a deeply personalized learning journey.
+
+Personality Type: ${personality_type} - ${personality_name}
+Chosen Career: ${chosen_career}
+Their Key Strengths: ${top_traits?.join(', ') || 'analytical, driven'}
+Skills to Learn: ${skills_to_learn?.join(', ') || 'core skills'}
+
+STRICT RULES:
+1. Generate 3-4 phases with REALISTIC durations for this specific career
+   - Simple careers (content creator, marketer): 30-45 days per phase
+   - Tech/Engineering: 45-60 days per phase
+   - Medicine/Law/Architecture: 60-90 days per phase
+2. Each phase must have exactly 10-12 specific, actionable tasks (not generic ones)
+3. Tasks must be concrete: "Watch Python for beginners on freeCodeCamp (3 hours)" NOT "Learn coding"
+4. Daily schedule must be specific to ${chosen_career} — no generic placeholders
+5. Return ONLY valid JSON — no markdown, no backticks, no explanation
+
+Return this exact JSON structure:
+{
+  "roadmap": [
+    {
+      "month": "Month 1-2",
+      "goal": "Specific goal for ${chosen_career}",
+      "duration_days": 60,
+      "tasks": [
+        "Specific task 1 for ${chosen_career}",
+        "Specific task 2",
+        "Specific task 3",
+        "Specific task 4",
+        "Specific task 5",
+        "Specific task 6",
+        "Specific task 7",
+        "Specific task 8",
+        "Specific task 9",
+        "Specific task 10"
+      ]
+    },
+    {
+      "month": "Month 3-4",
+      "goal": "Second phase goal",
+      "duration_days": 60,
+      "tasks": ["task1","task2","task3","task4","task5","task6","task7","task8","task9","task10"]
+    },
+    {
+      "month": "Month 5-6",
+      "goal": "Third phase goal",
+      "duration_days": 60,
+      "tasks": ["task1","task2","task3","task4","task5","task6","task7","task8","task9","task10"]
+    }
+  ],
+  "daily_schedule": [
+    {"time": "6:00 AM", "task": "Specific morning routine for ${chosen_career}", "icon": "🌅"},
+    {"time": "7:30 AM", "task": "Specific learning activity", "icon": "📖"},
+    {"time": "12:00 PM", "task": "Specific midday practice", "icon": "💡"},
+    {"time": "4:00 PM", "task": "Specific afternoon task", "icon": "🎯"},
+    {"time": "7:00 PM", "task": "Specific evening practice", "icon": "💻"},
+    {"time": "9:30 PM", "task": "Review + plan next day", "icon": "✅"}
+  ]
+}`,
+        },
+      ],
+      temperature: 0.7,
+      max_tokens: 4000,
+    })
+
+    const text = completion.choices[0].message.content
+    const clean = text.replace(/```json|```/g, '').trim()
+
+    let data
+    try {
+      data = JSON.parse(clean)
+    } catch (parseErr) {
+      console.error('JSON parse error:', parseErr)
+      return res.status(500).json({ message: 'AI returned invalid JSON', raw: clean })
+    }
+
+    // Validate structure
+    if (!data.roadmap || !data.daily_schedule) {
+      return res.status(500).json({ message: 'AI response missing required fields' })
+    }
+
+    res.json(data)
+  } catch (err) {
+    console.error('Journey generation error:', err)
+    res.status(500).json({ message: 'Failed to generate journey', error: err.message })
+  }
+})
+
 module.exports = router
