@@ -35,10 +35,11 @@ export default function Result() {
   }
 
   const downloadPDF = async () => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}')
     const res = await fetch(`${import.meta.env.VITE_API_URL}/api/result/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ result, type: 'pdf' })
+      body: JSON.stringify({ result, type: 'pdf', name: user.name || '', email: user.email || '' })
     })
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
@@ -50,10 +51,11 @@ export default function Result() {
   }
 
   const downloadCard = async () => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}')
     const res = await fetch(`${import.meta.env.VITE_API_URL}/api/result/download`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ result, type: 'png' })
+      body: JSON.stringify({ result, type: 'png', name: user.name || '', email: user.email || '' })
     })
     const blob = await res.blob()
     const url = URL.createObjectURL(blob)
