@@ -2,16 +2,123 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>CareerMind AI — Discover Your Perfect Career</title>
     <meta name="description" content="CareerMind AI — Discover your personality type and find your perfect career path. Free AI-powered personality test with personalized roadmap." />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#1A1A2E" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="CareerMind" />
+
+    <!-- OG -->
     <meta property="og:title" content="CareerMind AI" />
     <meta property="og:description" content="Discover Who You Are. Find Where You Belong." />
-    <meta property="og:image" content="/logo.svg" />
-    <title>CareerMind AI — Discover Your Perfect Career</title>
+    <meta property="og:image" content="/icon-512.png" />
+
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      body {
+        background-color: #1A1A2E;
+        min-height: 100vh;
+      }
+
+      /* ── Splash Screen ── */
+      #splash {
+        position: fixed;
+        inset: 0;
+        background: linear-gradient(145deg, #1A1A2E 0%, #16213E 60%, #1A1A2E 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        transition: opacity 0.6s ease;
+      }
+
+      #splash.fade-out {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Logo image — same logo.svg your app uses */
+      #splash-logo {
+        width: 280px;
+        max-width: 75vw;
+        animation: splashPulse 2s ease-in-out infinite;
+        filter: drop-shadow(0 0 32px rgba(124, 58, 237, 0.35));
+      }
+
+      /* Loading dots */
+      #splash-dots {
+        display: flex;
+        gap: 8px;
+        margin-top: 48px;
+      }
+
+      #splash-dots span {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #7c3aed, #db2777);
+        animation: dotBounce 1.2s ease-in-out infinite;
+      }
+
+      #splash-dots span:nth-child(2) { animation-delay: 0.2s; }
+      #splash-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+      @keyframes splashPulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50%       { opacity: 0.88; transform: scale(0.97); }
+      }
+
+      @keyframes dotBounce {
+        0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+        40%            { transform: scale(1);   opacity: 1;   }
+      }
+
+      #root { min-height: 100vh; }
+    </style>
   </head>
   <body>
+
+    <!-- Splash — shows logo.svg exactly as your app does, on dark bg -->
+    <div id="splash">
+      <img id="splash-logo" src="/logo.svg" alt="CareerMind AI" />
+      <div id="splash-dots">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+
+    <script>
+      // Hide splash once page is fully loaded, min 1.4s so logo is seen
+      const hideSplash = () => {
+        const splash = document.getElementById('splash')
+        if (!splash) return
+        splash.classList.add('fade-out')
+        setTimeout(() => splash.remove(), 650)
+      }
+
+      if (document.readyState === 'complete') {
+        setTimeout(hideSplash, 1400)
+      } else {
+        window.addEventListener('load', () => setTimeout(hideSplash, 1400))
+      }
+    </script>
+
   </body>
 </html>
