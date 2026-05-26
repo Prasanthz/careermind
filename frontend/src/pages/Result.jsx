@@ -90,7 +90,7 @@ export default function Result() {
         headers: { Authorization: `Bearer ${token}` }
       })
     }
-    navigate('/quiz', { replace: true })
+    navigate('/quiz', { replace: true, state: { retake: true } })
   }
 
   // Save demo result → replaces saved result, clears journey

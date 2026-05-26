@@ -5,6 +5,27 @@ const Groq = require('groq-sdk')
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
 const auth = require('../middleware/authMiddleware')
 
+// ── Smart model selector with fallback ──
+async function groqComplete(messages, options = {}) {
+  try {
+    return await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      ...options,
+      messages,
+    })
+  } catch (err) {
+    if (err?.status === 429 || err?.message?.includes('rate') || err?.message?.includes('quota')) {
+      console.warn('⚠️ 70B quota hit — falling back to 8B model')
+      return await groq.chat.completions.create({
+        model: 'llama-3.1-8b-instant',
+        ...options,
+        messages,
+      })
+    }
+    throw err
+  }
+}
+
 // ── Helper: Fisher-Yates shuffle ──────────────────────────────
 function shuffleArray(arr) {
   const a = [...arr]
@@ -83,12 +104,10 @@ router.post('/submit', async (req, res) => {
       answersText += `Q. ${q.question_text} → ${chosen}\n`
     })
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
-      messages: [
-        {
-          role: 'user',
-          content: `You are an MBTI personality expert. Analyze these answers carefully.
+    const messages = [
+      {
+        role: 'user',
+        content: `You are an MBTI personality expert. Analyze these answers carefully.
 
 IMPORTANT RULES:
 - Do NOT always return INTJ
@@ -139,11 +158,10 @@ Return this exact JSON structure:
     {"month": "Month 5-6", "goal": "Apply for jobs", "tasks": ["task1", "task2"]}
   ]
 }`
-        }
-      ],
-      temperature: 0.9,
-      max_tokens: 2000,
-    })
+      }
+    ]
+
+    const completion = await groqComplete(messages, { temperature: 0.9, max_tokens: 2000 })
 
     const text = completion.choices[0].message.content
     const clean = text.replace(/```json|```/g, '').trim()
@@ -171,12 +189,7 @@ Return this exact JSON structure:
   }
 })
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ADD THIS ROUTE inside quizRoutes.js, before module.exports = router
-// ─────────────────────────────────────────────────────────────────────────────
-
 // POST /api/quiz/generate-journey
-// Generates a focused roadmap + schedule for a specific chosen career
 router.post('/generate-journey', async (req, res) => {
   try {
     const {
@@ -191,12 +204,10 @@ router.post('/generate-journey', async (req, res) => {
       return res.status(400).json({ message: 'chosen_career is required' })
     }
 
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
-      messages: [
-        {
-          role: 'user',
-          content: `You are a professional career coach. Generate a deeply personalized learning journey.
+    const messages = [
+      {
+        role: 'user',
+        content: `You are a professional career coach. Generate a deeply personalized learning journey.
 
 Personality Type: ${personality_type} - ${personality_name}
 Chosen Career: ${chosen_career}
@@ -254,12 +265,11 @@ Return this exact JSON structure:
     {"time": "7:00 PM", "task": "Specific evening practice", "icon": "💻"},
     {"time": "9:30 PM", "task": "Review + plan next day", "icon": "✅"}
   ]
-}`,
-        },
-      ],
-      temperature: 0.7,
-      max_tokens: 4000,
-    })
+}`
+      }
+    ]
+
+    const completion = await groqComplete(messages, { temperature: 0.7, max_tokens: 4000 })
 
     const text = completion.choices[0].message.content
     const clean = text.replace(/```json|```/g, '').trim()
@@ -272,7 +282,6 @@ Return this exact JSON structure:
       return res.status(500).json({ message: 'AI returned invalid JSON', raw: clean })
     }
 
-    // Validate structure
     if (!data.roadmap || !data.daily_schedule) {
       return res.status(500).json({ message: 'AI response missing required fields' })
     }

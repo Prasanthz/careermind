@@ -15,8 +15,14 @@ export default function Quiz({ guestMode = false }) {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const savedUser = JSON.parse(localStorage.getItem('user') || '{}')
-  const [stageSelected, setStageSelected] = useState(demoMode ? false : !!savedUser.stage)
-  const [stage, setStage] = useState(demoMode ? '' : (savedUser.stage || ''))
+  const isRetake = location.state?.retake || false
+
+  const [stageSelected, setStageSelected] = useState(
+    demoMode ? false : (!isRetake && !!savedUser.stage)
+  )
+  const [stage, setStage] = useState(
+    demoMode ? '' : (isRetake ? '' : (savedUser.stage || ''))
+  )
 
   const stages = [
     { value: 'school', label: '🎒 School Student' },
@@ -53,6 +59,19 @@ export default function Quiz({ guestMode = false }) {
       Object.keys(answers).forEach(idx => {
         answersById[questions[idx].id] = answers[idx]
       })
+
+      if (token && stage) {
+        await fetch(`${import.meta.env.VITE_API_URL}/api/auth/update-stage`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`
+          },
+          body: JSON.stringify({ stage })
+        })
+        const user = JSON.parse(localStorage.getItem('user') || '{}')
+        localStorage.setItem('user', JSON.stringify({ ...user, stage }))
+      }
 
       const res = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/submit`, {
         method: 'POST',
