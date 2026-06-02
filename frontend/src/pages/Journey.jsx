@@ -24,17 +24,39 @@ function formatDateTime() {
   return { date, time }
 }
 
-function getTasksForDay(tasks, durationDays, dayNumber) {
+// ── Extract hours from task text ──────────────────────────────────────────────
+function extractHours(taskText) {
+  if (!taskText) return null
+  const match = taskText.match(/\((\d+)\s*h(?:rs?|ours?)?\)/i)
+  if (match) return parseInt(match[1])
+  return null
+}
+
+// ── Fix 1: getTasksForDay with carry forward ──────────────────────────────────
+function getTasksForDay(tasks, durationDays, dayNumber, completedTasks, phaseIdx) {
   if (!tasks || tasks.length === 0) return []
   const daysPerTask = Math.floor(durationDays / tasks.length)
-  const taskIdx = Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
+  let taskIdx = Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
+
+  // If current task is completed → show next task
+  // If current task is NOT completed → carry forward (same task)
+  const key = `${phaseIdx}-${taskIdx}`
+  if (completedTasks[key]) {
+    taskIdx = Math.min(taskIdx + 1, tasks.length - 1)
+  }
+
   return [{ task: tasks[taskIdx], taskIdx }]
 }
 
-function getActiveTaskIdx(tasks, durationDays, dayNumber) {
+function getActiveTaskIdx(tasks, durationDays, dayNumber, completedTasks, phaseIdx) {
   if (!tasks || tasks.length === 0) return 0
   const daysPerTask = Math.floor(durationDays / tasks.length)
-  return Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
+  let taskIdx = Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
+  const key = `${phaseIdx}-${taskIdx}`
+  if (completedTasks[key]) {
+    taskIdx = Math.min(taskIdx + 1, tasks.length - 1)
+  }
+  return taskIdx
 }
 
 function daysBeforePhase(roadmap, phaseIdx) {
@@ -56,6 +78,7 @@ export default function Journey() {
 
   const [journey, setJourney] = useState(null)
   const [completedTasks, setCompletedTasks] = useState({})
+  const [taskHours, setTaskHours] = useState({}) // { "phaseIdx-taskIdx": hoursCompleted }
   const [points, setPoints] = useState(0)
   const [streak, setStreak] = useState(0)
   const [activeTab, setActiveTab] = useState('today')
@@ -92,6 +115,8 @@ export default function Journey() {
       setJourney(parsed)
       const ct = localStorage.getItem('completedTasks')
       if (ct) setCompletedTasks(JSON.parse(ct))
+      const th = localStorage.getItem('taskHours')
+      if (th) setTaskHours(JSON.parse(th))
       setPoints(parseInt(localStorage.getItem('journeyPoints') || '0'))
       setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
     }
@@ -211,6 +236,7 @@ export default function Journey() {
     return Math.max(1, currentJourneyDay - daysBefore)
   }, [journey, currentJourneyDay])
 
+  // Fix 3: getTodaySection passes completedTasks and phaseIdx
   const getTodaySection = useCallback(() => {
     if (!journey) return null
     const unlockedPhase = getUnlockedPhase()
@@ -218,30 +244,49 @@ export default function Journey() {
     if (!phase) return null
     const duration = phase.duration_days || 60
     const dayInPhase = Math.min(getDayInPhase(unlockedPhase), duration)
-    const todayTasks = getTasksForDay(phase.tasks, duration, dayInPhase)
+    // Fix 3: pass completedTasks and unlockedPhase
+    const todayTasks = getTasksForDay(phase.tasks, duration, dayInPhase, completedTasks, unlockedPhase)
     return { phase, phaseIdx: unlockedPhase, dayInPhase, duration, todayTasks }
-  }, [journey, getUnlockedPhase, getDayInPhase])
+  }, [journey, getUnlockedPhase, getDayInPhase, completedTasks])
 
-  // Toggle task
+  // ── Add hours to a task ───────────────────────────────────────────────────
+  const addHours = (phaseIdx, taskIdx, hoursToAdd, maxHours) => {
+    const key = `${phaseIdx}-${taskIdx}`
+    if (completedTasks[key]) return // already complete, locked
+
+    const currentHours = taskHours[key] || 0
+    const newHours = Math.min(currentHours + hoursToAdd, maxHours)
+    const updatedHours = { ...taskHours, [key]: newHours }
+    setTaskHours(updatedHours)
+    localStorage.setItem('taskHours', JSON.stringify(updatedHours))
+    updateStreak() // streak updates when hours added
+
+    // Auto complete when hours reach max
+    if (newHours >= maxHours) {
+      const updatedCompleted = { ...completedTasks, [key]: true }
+      const newPts = points + 10
+      setPoints(newPts)
+      localStorage.setItem('journeyPoints', String(newPts))
+      setCompletedTasks(updatedCompleted)
+      localStorage.setItem('completedTasks', JSON.stringify(updatedCompleted))
+    }
+  }
+
+  // Fix 2: toggleTask — once checked, locked forever. No unchecking.
   const toggleTask = (phaseIdx, taskIdx, allowedByDay = true) => {
     if (!allowedByDay) return
     const unlockedPhase = getUnlockedPhase()
     if (phaseIdx > unlockedPhase) return
     const key = `${phaseIdx}-${taskIdx}`
-    const already = completedTasks[key]
-    const updated = { ...completedTasks }
-    if (already) {
-      delete updated[key]
-      const newPts = Math.max(0, points - 10)
-      setPoints(newPts)
-      localStorage.setItem('journeyPoints', String(newPts))
-    } else {
-      updated[key] = true
-      const newPts = points + 10
-      setPoints(newPts)
-      localStorage.setItem('journeyPoints', String(newPts))
-      updateStreak()
-    }
+
+    // 🔒 If already completed, do NOT allow unchecking
+    if (completedTasks[key]) return
+
+    const updated = { ...completedTasks, [key]: true }
+    const newPts = points + 10
+    setPoints(newPts)
+    localStorage.setItem('journeyPoints', String(newPts))
+    updateStreak()
     setCompletedTasks(updated)
     localStorage.setItem('completedTasks', JSON.stringify(updated))
   }
@@ -285,7 +330,7 @@ export default function Journey() {
     }
   }
 
-  // Generate journey (initial or change)
+  // Generate journey
   const generateJourney = async (chosenCareer) => {
     setGeneratingJourney(true)
     setError(null)
@@ -326,11 +371,13 @@ export default function Journey() {
         }).catch(() => {})
       }
       localStorage.removeItem('completedTasks')
+      localStorage.removeItem('taskHours')
       localStorage.setItem('journeyPoints', '0')
       localStorage.setItem('journeyStreak', '0')
       localStorage.removeItem('lastActiveDay')
       setJourney(payload)
       setCompletedTasks({})
+      setTaskHours({})
       setPoints(0)
       setStreak(0)
       setShowChangePicker(false)
@@ -342,6 +389,53 @@ export default function Journey() {
     } finally {
       setGeneratingJourney(false)
     }
+  }
+
+  // ── Hour Tracker UI Component ─────────────────────────────────────────────
+  const HourTracker = ({ phaseIdx, taskIdx, maxHours, taskKey }) => {
+    const done = !!completedTasks[taskKey]
+    const current = taskHours[taskKey] || 0
+    const pct = Math.min((current / maxHours) * 100, 100)
+
+    return (
+      <div className="mt-3 space-y-2">
+        {/* Progress bar */}
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-xs text-gray-400">⏱️ Progress</span>
+          <span className={`text-xs font-bold ${done ? 'text-green-400' : 'text-purple-400'}`}>
+            {current}/{maxHours} hrs {done ? '✅' : ''}
+          </span>
+        </div>
+        <div className="h-2.5 bg-purple-900/30 rounded-full overflow-hidden">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${pct}%` }}
+            transition={{ duration: 0.5 }}
+            className={`h-full rounded-full ${done ? 'bg-green-500' : 'bg-gradient-to-r from-purple-500 to-pink-500'}`}
+          />
+        </div>
+        {/* +hr buttons */}
+        {!done && (
+          <div className="flex gap-2 mt-2">
+            {[1, 2, 3].map(h => (
+              <button
+                key={h}
+                onClick={() => addHours(phaseIdx, taskIdx, h, maxHours)}
+                disabled={current >= maxHours}
+                className="flex-1 py-2 text-xs font-bold bg-purple-900/40 border border-purple-700/50 text-purple-300 rounded-lg hover:bg-purple-700/50 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                +{h}hr
+              </button>
+            ))}
+          </div>
+        )}
+        {done && (
+          <div className="text-center text-green-400 text-xs font-semibold py-1">
+            🎉 Completed! Next task unlocked.
+          </div>
+        )}
+      </div>
+    )
   }
 
   // ── Early returns ──────────────────────────────────────────────────────────
@@ -598,26 +692,43 @@ export default function Journey() {
                     {todaySection.todayTasks.map(({ task, taskIdx }) => {
                       const key = `${todaySection.phaseIdx}-${taskIdx}`
                       const done = !!completedTasks[key]
+                      const maxHours = extractHours(task)
+                      const hasHourTracker = maxHours !== null && maxHours >= 3
+
                       return (
-                        <motion.button
+                        <motion.div
                           key={key}
-                          onClick={() => toggleTask(todaySection.phaseIdx, taskIdx, true)}
-                          whileTap={{ scale: 0.98 }}
+                          whileTap={!hasHourTracker && !done ? { scale: 0.98 } : {}}
+                          onClick={() => !hasHourTracker && toggleTask(todaySection.phaseIdx, taskIdx, true)}
                           className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
-                            done ? 'border-green-500/50 bg-green-900/20' : 'border-purple-900/50 bg-[#1A1A2E] hover:border-purple-500/60'
-                          }`}
+                            hasHourTracker ? 'cursor-default' : done ? 'cursor-not-allowed' : 'cursor-pointer'
+                          } ${done ? 'border-green-500/50 bg-green-900/20' : 'border-purple-900/50 bg-[#1A1A2E] hover:border-purple-500/60'}`}
                         >
                           <div className="flex items-start gap-3">
-                            <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
-                              done ? 'border-green-500 bg-green-500' : 'border-gray-600'
-                            }`}>
-                              {done && <span className="text-white text-xs">✓</span>}
+                            {/* Checkbox — only for non-hour tasks */}
+                            {!hasHourTracker && (
+                              <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
+                                done ? 'border-green-500 bg-green-500' : 'border-gray-600'
+                              }`}>
+                                {done && <span className="text-white text-xs">✓</span>}
+                              </div>
+                            )}
+                            <div className="flex-1">
+                              <span className={`text-sm leading-relaxed ${done ? 'text-green-400 line-through' : 'text-gray-200'}`}>
+                                {task}
+                              </span>
+                              {/* Hour tracker for tasks with 3+ hrs */}
+                              {hasHourTracker && (
+                                <HourTracker
+                                  phaseIdx={todaySection.phaseIdx}
+                                  taskIdx={taskIdx}
+                                  maxHours={maxHours}
+                                  taskKey={key}
+                                />
+                              )}
                             </div>
-                            <span className={`text-sm leading-relaxed ${done ? 'text-green-400 line-through' : 'text-gray-200'}`}>
-                              {task}
-                            </span>
                           </div>
-                        </motion.button>
+                        </motion.div>
                       )
                     })}
                   </div>
@@ -641,7 +752,7 @@ export default function Journey() {
                 const isExpanded = expandedPhase === phaseIdx && !isLocked
                 const duration = phase.duration_days || 60
                 const dayInPhase = Math.min(getDayInPhase(phaseIdx), duration)
-                const activeTaskIdx = getActiveTaskIdx(phase.tasks, duration, dayInPhase)
+                const activeTaskIdx = getActiveTaskIdx(phase.tasks, duration, dayInPhase, completedTasks, phaseIdx)
 
                 return (
                   <div key={phaseIdx} className={`rounded-2xl border overflow-hidden transition-all ${
@@ -695,24 +806,28 @@ export default function Journey() {
                               const done = !!completedTasks[key]
                               const isActiveToday = taskIdx === activeTaskIdx
                               const isFuture = taskIdx > activeTaskIdx
-                              const canToggle = !isFuture
+                              const canToggle = !isFuture && !done
+                              const maxHours = extractHours(task)
+                              const hasHourTracker = maxHours !== null && maxHours >= 3
+
                               return (
-                                <motion.button
+                                <motion.div
                                   key={taskIdx}
-                                  onClick={() => canToggle && toggleTask(phaseIdx, taskIdx, canToggle)}
-                                  whileTap={canToggle ? { scale: 0.98 } : {}}
+                                  onClick={() => !hasHourTracker && canToggle && toggleTask(phaseIdx, taskIdx, !isFuture)}
                                   className={`w-full text-left p-3 rounded-xl flex items-start gap-3 transition-all ${
                                     isFuture ? 'opacity-40 cursor-not-allowed bg-[#1A1A2E]'
-                                    : done ? 'bg-green-900/20'
-                                    : isActiveToday ? 'bg-purple-900/30 border border-purple-700/40'
-                                    : 'bg-[#1A1A2E] hover:bg-purple-900/20'
+                                    : done ? 'bg-green-900/20 cursor-not-allowed'
+                                    : isActiveToday ? 'bg-purple-900/30 border border-purple-700/40 cursor-pointer'
+                                    : 'bg-[#1A1A2E] hover:bg-purple-900/20 cursor-pointer'
                                   }`}
                                 >
-                                  <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
-                                    isFuture ? 'border-gray-700' : done ? 'border-green-500 bg-green-500' : 'border-gray-600'
-                                  }`}>
-                                    {done && !isFuture && <span className="text-white text-[10px]">✓</span>}
-                                  </div>
+                                  {!hasHourTracker && (
+                                    <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
+                                      isFuture ? 'border-gray-700' : done ? 'border-green-500 bg-green-500' : 'border-gray-600'
+                                    }`}>
+                                      {done && !isFuture && <span className="text-white text-[10px]">✓</span>}
+                                    </div>
+                                  )}
                                   <div className="flex-1">
                                     <span className={`text-sm ${
                                       isFuture ? 'text-gray-700' : done ? 'text-green-400 line-through' : 'text-gray-300'
@@ -723,8 +838,16 @@ export default function Journey() {
                                     {isFuture && (
                                       <span className="ml-2 text-[10px] text-gray-700">🔒 future</span>
                                     )}
+                                    {hasHourTracker && !isFuture && (
+                                      <HourTracker
+                                        phaseIdx={phaseIdx}
+                                        taskIdx={taskIdx}
+                                        maxHours={maxHours}
+                                        taskKey={key}
+                                      />
+                                    )}
                                   </div>
-                                </motion.button>
+                                </motion.div>
                               )
                             })}
                           </div>
