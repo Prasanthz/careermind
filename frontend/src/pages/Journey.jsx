@@ -24,11 +24,22 @@ function formatDateTime() {
   return { date, time }
 }
 
-// ── Extract hours from task text ──────────────────────────────────────────────
-function extractHours(taskText) {
+// ── Detect tracker type from task text ───────────────────────────────────────
+function detectTracker(taskText) {
   if (!taskText) return null
-  const match = taskText.match(/\((\d+)\s*h(?:rs?|ours?)?\)/i)
-  if (match) return parseInt(match[1])
+
+  // Hours: (12 hrs), (5 hours), (3 hr)
+  const hoursMatch = taskText.match(/\((\d+)\s*h(?:rs?|ours?)?\)/i)
+  if (hoursMatch) return { type: 'hours', max: parseInt(hoursMatch[1]) }
+
+  // Pages: (320 pages), (200 page)
+  const pagesMatch = taskText.match(/\((\d+)\s*pages?\)/i)
+  if (pagesMatch) return { type: 'pages', max: parseInt(pagesMatch[1]) }
+
+  // Weeks: (3 weeks), (2 week)
+  const weeksMatch = taskText.match(/\((\d+)\s*weeks?\)/i)
+  if (weeksMatch) return { type: 'days', max: parseInt(weeksMatch[1]) * 7 }
+
   return null
 }
 
@@ -391,19 +402,42 @@ export default function Journey() {
     }
   }
 
-  // ── Hour Tracker UI Component ─────────────────────────────────────────────
-  const HourTracker = ({ phaseIdx, taskIdx, maxHours, taskKey }) => {
+  // ── Universal Progress Tracker (hours / pages / days) ────────────────────
+  const ProgressTracker = ({ phaseIdx, taskIdx, tracker, taskKey }) => {
     const done = !!completedTasks[taskKey]
     const current = taskHours[taskKey] || 0
-    const pct = Math.min((current / maxHours) * 100, 100)
+    const pct = Math.min((current / tracker.max) * 100, 100)
+
+    const config = {
+      hours: {
+        icon: '⏱️',
+        label: 'Progress',
+        unit: 'hrs',
+        buttons: [1, 2, 3],
+        btnLabel: (v) => `+${v}hr`,
+      },
+      pages: {
+        icon: '📖',
+        label: 'Pages Read',
+        unit: 'pages',
+        buttons: [10, 20, 50],
+        btnLabel: (v) => `+${v}pg`,
+      },
+      days: {
+        icon: '📅',
+        label: 'Days Read',
+        unit: 'days',
+        buttons: [1],
+        btnLabel: () => '+1 day',
+      },
+    }[tracker.type]
 
     return (
-      <div className="mt-3 space-y-2">
-        {/* Progress bar */}
+      <div className="mt-3 space-y-2" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs text-gray-400">⏱️ Progress</span>
+          <span className="text-xs text-gray-400">{config.icon} {config.label}</span>
           <span className={`text-xs font-bold ${done ? 'text-green-400' : 'text-purple-400'}`}>
-            {current}/{maxHours} hrs {done ? '✅' : ''}
+            {current}/{tracker.max} {config.unit} {done ? '✅' : ''}
           </span>
         </div>
         <div className="h-2.5 bg-purple-900/30 rounded-full overflow-hidden">
@@ -414,17 +448,16 @@ export default function Journey() {
             className={`h-full rounded-full ${done ? 'bg-green-500' : 'bg-gradient-to-r from-purple-500 to-pink-500'}`}
           />
         </div>
-        {/* +hr buttons */}
         {!done && (
           <div className="flex gap-2 mt-2">
-            {[1, 2, 3].map(h => (
+            {config.buttons.map(v => (
               <button
-                key={h}
-                onClick={() => addHours(phaseIdx, taskIdx, h, maxHours)}
-                disabled={current >= maxHours}
+                key={v}
+                onClick={() => addHours(phaseIdx, taskIdx, v, tracker.max)}
+                disabled={current >= tracker.max}
                 className="flex-1 py-2 text-xs font-bold bg-purple-900/40 border border-purple-700/50 text-purple-300 rounded-lg hover:bg-purple-700/50 hover:text-white transition-all disabled:opacity-30 disabled:cursor-not-allowed"
               >
-                +{h}hr
+                {config.btnLabel(v)}
               </button>
             ))}
           </div>
@@ -692,21 +725,21 @@ export default function Journey() {
                     {todaySection.todayTasks.map(({ task, taskIdx }) => {
                       const key = `${todaySection.phaseIdx}-${taskIdx}`
                       const done = !!completedTasks[key]
-                      const maxHours = extractHours(task)
-                      const hasHourTracker = maxHours !== null && maxHours >= 3
+                      const tracker = detectTracker(task)
+                      const hasTracker = tracker !== null
 
                       return (
                         <motion.div
                           key={key}
-                          whileTap={!hasHourTracker && !done ? { scale: 0.98 } : {}}
-                          onClick={() => !hasHourTracker && toggleTask(todaySection.phaseIdx, taskIdx, true)}
+                          whileTap={!hasTracker && !done ? { scale: 0.98 } : {}}
+                          onClick={() => !hasTracker && toggleTask(todaySection.phaseIdx, taskIdx, true)}
                           className={`w-full text-left p-4 rounded-xl border-2 transition-all ${
-                            hasHourTracker ? 'cursor-default' : done ? 'cursor-not-allowed' : 'cursor-pointer'
+                            hasTracker ? 'cursor-default' : done ? 'cursor-not-allowed' : 'cursor-pointer'
                           } ${done ? 'border-green-500/50 bg-green-900/20' : 'border-purple-900/50 bg-[#1A1A2E] hover:border-purple-500/60'}`}
                         >
                           <div className="flex items-start gap-3">
-                            {/* Checkbox — only for non-hour tasks */}
-                            {!hasHourTracker && (
+                            {/* Checkbox — only for simple tasks */}
+                            {!hasTracker && (
                               <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
                                 done ? 'border-green-500 bg-green-500' : 'border-gray-600'
                               }`}>
@@ -717,12 +750,12 @@ export default function Journey() {
                               <span className={`text-sm leading-relaxed ${done ? 'text-green-400 line-through' : 'text-gray-200'}`}>
                                 {task}
                               </span>
-                              {/* Hour tracker for tasks with 3+ hrs */}
-                              {hasHourTracker && (
-                                <HourTracker
+                              {/* Progress tracker for hrs / pages / weeks */}
+                              {hasTracker && (
+                                <ProgressTracker
                                   phaseIdx={todaySection.phaseIdx}
                                   taskIdx={taskIdx}
-                                  maxHours={maxHours}
+                                  tracker={tracker}
                                   taskKey={key}
                                 />
                               )}
