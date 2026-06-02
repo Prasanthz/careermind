@@ -28,15 +28,12 @@ function formatDateTime() {
 function detectTracker(taskText) {
   if (!taskText) return null
 
-  // Hours: (12 hrs), (5 hours), (3 hr)
   const hoursMatch = taskText.match(/\((\d+)\s*h(?:rs?|ours?)?\)/i)
   if (hoursMatch) return { type: 'hours', max: parseInt(hoursMatch[1]) }
 
-  // Pages: (320 pages), (200 page)
   const pagesMatch = taskText.match(/\((\d+)\s*pages?\)/i)
   if (pagesMatch) return { type: 'pages', max: parseInt(pagesMatch[1]) }
 
-  // Weeks: (3 weeks), (2 week)
   const weeksMatch = taskText.match(/\((\d+)\s*weeks?\)/i)
   if (weeksMatch) return { type: 'days', max: parseInt(weeksMatch[1]) * 7 }
 
@@ -49,8 +46,6 @@ function getTasksForDay(tasks, durationDays, dayNumber, completedTasks, phaseIdx
   const daysPerTask = Math.floor(durationDays / tasks.length)
   let taskIdx = Math.min(Math.floor((dayNumber - 1) / Math.max(daysPerTask, 1)), tasks.length - 1)
 
-  // If current task is completed → show next task
-  // If current task is NOT completed → carry forward (same task)
   const key = `${phaseIdx}-${taskIdx}`
   if (completedTasks[key]) {
     taskIdx = Math.min(taskIdx + 1, tasks.length - 1)
@@ -89,7 +84,7 @@ export default function Journey() {
 
   const [journey, setJourney] = useState(null)
   const [completedTasks, setCompletedTasks] = useState({})
-  const [taskHours, setTaskHours] = useState({}) // { "phaseIdx-taskIdx": hoursCompleted }
+  const [taskHours, setTaskHours] = useState({})
   const [points, setPoints] = useState(0)
   const [streak, setStreak] = useState(0)
   const [activeTab, setActiveTab] = useState('today')
@@ -111,13 +106,11 @@ export default function Journey() {
     return user?.id ? `journeyData_${user.id}` : 'journeyData'
   }
 
-  // Clock tick
   useEffect(() => {
     const timer = setInterval(() => setDateTime(formatDateTime()), 60000)
     return () => clearInterval(timer)
   }, [])
 
-  // Load journey
   useEffect(() => {
     const token = localStorage.getItem('token')
     const localKey = getLocalKey()
@@ -188,7 +181,6 @@ export default function Journey() {
     }
   }, [])
 
-  // Load reminder
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) return
@@ -203,7 +195,6 @@ export default function Journey() {
       .catch(() => {})
   }, [])
 
-  // Streak
   const updateStreak = useCallback(() => {
     const todayKey = getTodayKey()
     const lastActive = localStorage.getItem('lastActiveDay')
@@ -217,7 +208,6 @@ export default function Journey() {
     localStorage.setItem('lastActiveDay', todayKey)
   }, [streak])
 
-  // Phase helpers
   const getPhaseProgress = useCallback((phaseIdx) => {
     if (!journey) return 0
     const tasks = journey.roadmap[phaseIdx]?.tasks || []
@@ -247,7 +237,6 @@ export default function Journey() {
     return Math.max(1, currentJourneyDay - daysBefore)
   }, [journey, currentJourneyDay])
 
-  // Fix 3: getTodaySection passes completedTasks and phaseIdx
   const getTodaySection = useCallback(() => {
     if (!journey) return null
     const unlockedPhase = getUnlockedPhase()
@@ -255,25 +244,23 @@ export default function Journey() {
     if (!phase) return null
     const duration = phase.duration_days || 60
     const dayInPhase = Math.min(getDayInPhase(unlockedPhase), duration)
-    // Fix 3: pass completedTasks and unlockedPhase
     const todayTasks = getTasksForDay(phase.tasks, duration, dayInPhase, completedTasks, unlockedPhase)
     return { phase, phaseIdx: unlockedPhase, dayInPhase, duration, todayTasks }
   }, [journey, getUnlockedPhase, getDayInPhase, completedTasks])
 
-  // ── Add hours to a task ───────────────────────────────────────────────────
-  const addHours = (phaseIdx, taskIdx, hoursToAdd, maxHours) => {
+  // ── Add progress to a task (hours / pages / days) ────────────────────────
+  const addHours = (phaseIdx, taskIdx, amountToAdd, maxAmount) => {
     const key = `${phaseIdx}-${taskIdx}`
-    if (completedTasks[key]) return // already complete, locked
+    if (completedTasks[key]) return
 
-    const currentHours = taskHours[key] || 0
-    const newHours = Math.min(currentHours + hoursToAdd, maxHours)
-    const updatedHours = { ...taskHours, [key]: newHours }
+    const current = taskHours[key] || 0
+    const newAmount = Math.min(current + amountToAdd, maxAmount)
+    const updatedHours = { ...taskHours, [key]: newAmount }
     setTaskHours(updatedHours)
     localStorage.setItem('taskHours', JSON.stringify(updatedHours))
-    updateStreak() // streak updates when hours added
+    updateStreak()
 
-    // Auto complete when hours reach max
-    if (newHours >= maxHours) {
+    if (newAmount >= maxAmount) {
       const updatedCompleted = { ...completedTasks, [key]: true }
       const newPts = points + 10
       setPoints(newPts)
@@ -283,14 +270,12 @@ export default function Journey() {
     }
   }
 
-  // Fix 2: toggleTask — once checked, locked forever. No unchecking.
+  // Fix 2: toggleTask — once checked, locked forever
   const toggleTask = (phaseIdx, taskIdx, allowedByDay = true) => {
     if (!allowedByDay) return
     const unlockedPhase = getUnlockedPhase()
     if (phaseIdx > unlockedPhase) return
     const key = `${phaseIdx}-${taskIdx}`
-
-    // 🔒 If already completed, do NOT allow unchecking
     if (completedTasks[key]) return
 
     const updated = { ...completedTasks, [key]: true }
@@ -302,7 +287,6 @@ export default function Journey() {
     localStorage.setItem('completedTasks', JSON.stringify(updated))
   }
 
-  // Badges
   const getBadges = () => {
     const totalDone = Object.keys(completedTasks).length
     const badges = []
@@ -317,7 +301,6 @@ export default function Journey() {
     return badges
   }
 
-  // Save reminder
   const saveReminder = async () => {
     setReminderSaving(true)
     setReminderMsg('')
@@ -341,7 +324,6 @@ export default function Journey() {
     }
   }
 
-  // Generate journey
   const generateJourney = async (chosenCareer) => {
     setGeneratingJourney(true)
     setError(null)
@@ -738,7 +720,6 @@ export default function Journey() {
                           } ${done ? 'border-green-500/50 bg-green-900/20' : 'border-purple-900/50 bg-[#1A1A2E] hover:border-purple-500/60'}`}
                         >
                           <div className="flex items-start gap-3">
-                            {/* Checkbox — only for simple tasks */}
                             {!hasTracker && (
                               <div className={`mt-0.5 w-5 h-5 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-all ${
                                 done ? 'border-green-500 bg-green-500' : 'border-gray-600'
@@ -750,7 +731,6 @@ export default function Journey() {
                               <span className={`text-sm leading-relaxed ${done ? 'text-green-400 line-through' : 'text-gray-200'}`}>
                                 {task}
                               </span>
-                              {/* Progress tracker for hrs / pages / weeks */}
                               {hasTracker && (
                                 <ProgressTracker
                                   phaseIdx={todaySection.phaseIdx}
@@ -776,7 +756,7 @@ export default function Journey() {
             </motion.div>
           )}
 
-          {/* ALL PHASES */}
+          {/* ALL PHASES — fixed: uses detectTracker + ProgressTracker */}
           {activeTab === 'phases' && (
             <motion.div key="phases" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="space-y-4">
               {journey.roadmap.map((phase, phaseIdx) => {
@@ -840,13 +820,14 @@ export default function Journey() {
                               const isActiveToday = taskIdx === activeTaskIdx
                               const isFuture = taskIdx > activeTaskIdx
                               const canToggle = !isFuture && !done
-                              const maxHours = extractHours(task)
-                              const hasHourTracker = maxHours !== null && maxHours >= 3
+                              // ✅ FIXED: use detectTracker instead of extractHours
+                              const tracker = detectTracker(task)
+                              const hasTracker = tracker !== null
 
                               return (
                                 <motion.div
                                   key={taskIdx}
-                                  onClick={() => !hasHourTracker && canToggle && toggleTask(phaseIdx, taskIdx, !isFuture)}
+                                  onClick={() => !hasTracker && canToggle && toggleTask(phaseIdx, taskIdx, !isFuture)}
                                   className={`w-full text-left p-3 rounded-xl flex items-start gap-3 transition-all ${
                                     isFuture ? 'opacity-40 cursor-not-allowed bg-[#1A1A2E]'
                                     : done ? 'bg-green-900/20 cursor-not-allowed'
@@ -854,7 +835,7 @@ export default function Journey() {
                                     : 'bg-[#1A1A2E] hover:bg-purple-900/20 cursor-pointer'
                                   }`}
                                 >
-                                  {!hasHourTracker && (
+                                  {!hasTracker && (
                                     <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${
                                       isFuture ? 'border-gray-700' : done ? 'border-green-500 bg-green-500' : 'border-gray-600'
                                     }`}>
@@ -871,11 +852,12 @@ export default function Journey() {
                                     {isFuture && (
                                       <span className="ml-2 text-[10px] text-gray-700">🔒 future</span>
                                     )}
-                                    {hasHourTracker && !isFuture && (
-                                      <HourTracker
+                                    {/* ✅ FIXED: use ProgressTracker instead of HourTracker */}
+                                    {hasTracker && !isFuture && (
+                                      <ProgressTracker
                                         phaseIdx={phaseIdx}
                                         taskIdx={taskIdx}
-                                        maxHours={maxHours}
+                                        tracker={tracker}
                                         taskKey={key}
                                       />
                                     )}
