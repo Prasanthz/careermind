@@ -219,10 +219,20 @@ STRICT RULES:
    - Simple careers (content creator, marketer): 30-45 days per phase
    - Tech/Engineering: 45-60 days per phase
    - Medicine/Law/Architecture: 60-90 days per phase
-2. Each phase must have exactly 10-12 specific, actionable tasks (not generic ones)
-3. Tasks must be concrete: "Watch Python for beginners on freeCodeCamp (3 hours)" NOT "Learn coding"
-4. Daily schedule must be specific to ${chosen_career} — no generic placeholders
-5. Return ONLY valid JSON — no markdown, no backticks, no explanation
+2. IMPORTANT: Each phase MUST have tasks = duration_days ÷ 3 (roughly one task every 3 days)
+   - 30-day phase → 10 tasks minimum
+   - 45-day phase → 15 tasks minimum
+   - 60-day phase → 20 tasks minimum
+   - 90-day phase → 30 tasks minimum
+   - Do NOT generate only 5-10 tasks for a 60-day phase
+3. Tasks must be SPECIFIC and ACTIONABLE — include duration in brackets where applicable:
+   - Courses: "Watch Python for Beginners on freeCodeCamp (5 hrs)"
+   - Books: "Read Clean Code by Robert Martin (320 pages)" or "Read Atomic Habits (3 weeks)"
+   - Practice: "Build a CRUD app using Node.js and MySQL"
+   - Simple tasks (no duration needed): "Create a GitHub account and push first repo"
+4. Mix task types: videos, books, practice projects, networking, portfolio tasks
+5. Daily schedule must be specific to ${chosen_career} — no generic placeholders
+6. Return ONLY valid JSON — no markdown, no backticks, no explanation
 
 Return this exact JSON structure:
 {
@@ -232,29 +242,39 @@ Return this exact JSON structure:
       "goal": "Specific goal for ${chosen_career}",
       "duration_days": 60,
       "tasks": [
-        "Specific task 1 for ${chosen_career}",
-        "Specific task 2",
-        "Specific task 3",
-        "Specific task 4",
-        "Specific task 5",
-        "Specific task 6",
-        "Specific task 7",
-        "Specific task 8",
-        "Specific task 9",
-        "Specific task 10"
+        "Task 1 (with duration if applicable)",
+        "Task 2",
+        "Task 3",
+        "Task 4",
+        "Task 5",
+        "Task 6",
+        "Task 7",
+        "Task 8",
+        "Task 9",
+        "Task 10",
+        "Task 11",
+        "Task 12",
+        "Task 13",
+        "Task 14",
+        "Task 15",
+        "Task 16",
+        "Task 17",
+        "Task 18",
+        "Task 19",
+        "Task 20"
       ]
     },
     {
       "month": "Month 3-4",
       "goal": "Second phase goal",
       "duration_days": 60,
-      "tasks": ["task1","task2","task3","task4","task5","task6","task7","task8","task9","task10"]
+      "tasks": ["task1","task2","task3","task4","task5","task6","task7","task8","task9","task10","task11","task12","task13","task14","task15","task16","task17","task18","task19","task20"]
     },
     {
       "month": "Month 5-6",
       "goal": "Third phase goal",
       "duration_days": 60,
-      "tasks": ["task1","task2","task3","task4","task5","task6","task7","task8","task9","task10"]
+      "tasks": ["task1","task2","task3","task4","task5","task6","task7","task8","task9","task10","task11","task12","task13","task14","task15","task16","task17","task18","task19","task20"]
     }
   ],
   "daily_schedule": [
@@ -269,7 +289,7 @@ Return this exact JSON structure:
       }
     ]
 
-    const completion = await groqComplete(messages, { temperature: 0.7, max_tokens: 4000 })
+    const completion = await groqComplete(messages, { temperature: 0.7, max_tokens: 8000 })
 
     const text = completion.choices[0].message.content
     const clean = text.replace(/```json|```/g, '').trim()
