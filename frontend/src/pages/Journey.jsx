@@ -79,7 +79,6 @@ function nextMilestone(streak) {
   return STREAK_MILESTONES.find(m => m > streak) || 100
 }
 
-// ── DB sync helper ────────────────────────────────────────────────────────────
 async function saveProgressToDB(token, payload) {
   if (!token) return
   try {
@@ -106,6 +105,8 @@ export default function Journey() {
   const [lastActiveDay, setLastActiveDay] = useState(null)
   const [activeTab, setActiveTab] = useState('today')
   const [showChangePicker, setShowChangePicker] = useState(false)
+  const [showChangeModal, setShowChangeModal] = useState(false)  // ← new
+  const [resetOnChange, setResetOnChange] = useState(false)      // ← new
   const [showInitialPicker, setShowInitialPicker] = useState(false)
   const [loadingJourney, setLoadingJourney] = useState(true)
   const [generatingJourney, setGeneratingJourney] = useState(false)
@@ -123,7 +124,6 @@ export default function Journey() {
     return user?.id ? `journeyData_${user.id}` : 'journeyData'
   }
 
-  // ── Debounced DB save ──────────────────────────────────────────────────────
   const scheduleSave = useCallback((ct, tp, pts, strk, lastDay) => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(() => {
@@ -135,16 +135,14 @@ export default function Journey() {
         streak: strk,
         last_active_day: lastDay
       })
-    }, 1000) // save 1s after last change
+    }, 1000)
   }, [])
 
-  // Clock tick
   useEffect(() => {
     const timer = setInterval(() => setDateTime(formatDateTime()), 60000)
     return () => clearInterval(timer)
   }, [])
 
-  // ── Load journey + progress from DB ───────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem('token')
     const localKey = getLocalKey()
@@ -161,7 +159,6 @@ export default function Journey() {
         setStreak(data.streak || 0)
         setLastActiveDay(data.last_active_day || null)
       } catch (e) {
-        // fallback to empty
         setCompletedTasks({})
         setTaskProgress({})
         setPoints(0)
@@ -178,7 +175,6 @@ export default function Journey() {
         setLoadingJourney(false)
         if (token) {
           loadProgress(token)
-          // sync journey to DB if needed
           fetch(`${API}/api/quiz/journey`, {
             headers: { Authorization: `Bearer ${token}` }
           })
@@ -230,7 +226,6 @@ export default function Journey() {
     }
   }, [])
 
-  // Load reminder
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) return
@@ -245,7 +240,6 @@ export default function Journey() {
       .catch(() => {})
   }, [])
 
-  // Streak
   const updateStreak = useCallback((currentStreak, currentLastDay) => {
     const todayKey = getTodayKey()
     if (currentLastDay === todayKey) return { newStreak: currentStreak, newLastDay: currentLastDay }
@@ -256,7 +250,6 @@ export default function Journey() {
     return { newStreak, newLastDay: todayKey }
   }, [])
 
-  // Phase helpers
   const getPhaseProgress = useCallback((phaseIdx) => {
     if (!journey) return 0
     const tasks = journey.roadmap[phaseIdx]?.tasks || []
@@ -297,7 +290,6 @@ export default function Journey() {
     return { phase, phaseIdx: unlockedPhase, dayInPhase, duration, todayTasks }
   }, [journey, getUnlockedPhase, getDayInPhase, completedTasks])
 
-  // ── Add progress (hours/pages/days) ───────────────────────────────────────
   const addProgress = (phaseIdx, taskIdx, amount, max) => {
     const key = `${phaseIdx}-${taskIdx}`
     if (completedTasks[key]) return
@@ -323,7 +315,6 @@ export default function Journey() {
     scheduleSave(updatedCompleted, updatedProgress, newPts, newStreak, newLastDay)
   }
 
-  // ── Toggle task ────────────────────────────────────────────────────────────
   const toggleTask = (phaseIdx, taskIdx, allowedByDay = true) => {
     if (!allowedByDay) return
     const unlockedPhase = getUnlockedPhase()
@@ -343,7 +334,6 @@ export default function Journey() {
     scheduleSave(updatedCompleted, taskProgress, newPts, newStreak, newLastDay)
   }
 
-  // Badges
   const getBadges = () => {
     const totalDone = Object.keys(completedTasks).length
     const badges = []
@@ -358,7 +348,6 @@ export default function Journey() {
     return badges
   }
 
-  // Save reminder
   const saveReminder = async () => {
     setReminderSaving(true)
     setReminderMsg('')
@@ -379,7 +368,7 @@ export default function Journey() {
     }
   }
 
-  // Generate journey
+  // ── Generate journey — resetProgress controls whether to wipe points/streak ─
   const generateJourney = async (chosenCareer) => {
     setGeneratingJourney(true)
     setError(null)
@@ -414,29 +403,40 @@ export default function Journey() {
       localStorage.setItem(localKey, JSON.stringify(payload))
 
       if (token) {
-        // Save new journey to DB
         fetch(`${API}/api/quiz/save-journey`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ journey: payload })
         }).catch(() => {})
 
-        // Reset progress in DB
-        await saveProgressToDB(token, {
-          completed_tasks: {},
-          task_progress: {},
-          points: 0,
-          streak: 0,
-          last_active_day: null
-        })
+        if (resetOnChange) {
+          // Start fresh — wipe all progress
+          await saveProgressToDB(token, {
+            completed_tasks: {},
+            task_progress: {},
+            points: 0,
+            streak: 0,
+            last_active_day: null
+          })
+        }
+        // If keeping progress, don't touch DB progress — it carries over
       }
 
       setJourney(payload)
-      setCompletedTasks({})
-      setTaskProgress({})
-      setPoints(0)
-      setStreak(0)
-      setLastActiveDay(null)
+      if (resetOnChange) {
+        setCompletedTasks({})
+        setTaskProgress({})
+        setPoints(0)
+        setStreak(0)
+        setLastActiveDay(null)
+      } else {
+        // Keep existing completedTasks, taskProgress, points, streak
+        // (tasks from old journey are irrelevant keys, new journey starts fresh visually)
+        setCompletedTasks({})
+        setTaskProgress({})
+        // points and streak carry over
+      }
+      setResetOnChange(false)
       setShowChangePicker(false)
       setShowInitialPicker(false)
       setExpandedPhase(0)
@@ -522,7 +522,7 @@ export default function Journey() {
     return (
       <>
         <CareerPicker result={result} onSelect={generateJourney} loading={generatingJourney} />
-        <button onClick={() => setShowChangePicker(false)} className="fixed top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl transition-all">✕ Cancel</button>
+        <button onClick={() => { setShowChangePicker(false); setResetOnChange(false) }} className="fixed top-4 right-4 z-50 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl transition-all">✕ Cancel</button>
         {error && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-red-600 text-white px-6 py-3 rounded-xl shadow-lg z-50">⚠️ {error}</div>}
       </>
     )
@@ -548,6 +548,77 @@ export default function Journey() {
   return (
     <div className="min-h-screen bg-[#1A1A2E] text-white">
 
+      {/* ── Change Journey Modal ──────────────────────────────────────────── */}
+      <AnimatePresence>
+        {showChangeModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center px-4"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#16213E] border border-purple-900/50 rounded-2xl p-6 w-full max-w-sm shadow-2xl"
+            >
+              <div className="text-center mb-5">
+                <div className="text-4xl mb-3">🔄</div>
+                <h2 className="text-white font-bold text-lg">Change Career Journey?</h2>
+                <p className="text-gray-400 text-sm mt-2">You have {Object.keys(completedTasks).length} tasks completed and {points} points earned.</p>
+              </div>
+
+              <div className="space-y-3">
+                {/* Keep Progress */}
+                <button
+                  onClick={() => {
+                    setResetOnChange(false)
+                    setShowChangeModal(false)
+                    setShowChangePicker(true)
+                  }}
+                  className="w-full p-4 rounded-xl border-2 border-purple-600/50 bg-purple-900/20 hover:bg-purple-900/40 transition-all text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">⚡</span>
+                    <div>
+                      <div className="text-white font-semibold text-sm">Keep My Progress</div>
+                      <div className="text-gray-400 text-xs mt-0.5">Points & streak carry over to new career</div>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Start Fresh */}
+                <button
+                  onClick={() => {
+                    setResetOnChange(true)
+                    setShowChangeModal(false)
+                    setShowChangePicker(true)
+                  }}
+                  className="w-full p-4 rounded-xl border-2 border-red-900/50 bg-red-900/10 hover:bg-red-900/20 transition-all text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">🗑️</span>
+                    <div>
+                      <div className="text-red-400 font-semibold text-sm">Start Fresh</div>
+                      <div className="text-gray-500 text-xs mt-0.5">Delete all progress, points & streak</div>
+                    </div>
+                  </div>
+                </button>
+
+                {/* Cancel */}
+                <button
+                  onClick={() => setShowChangeModal(false)}
+                  className="w-full py-3 rounded-xl text-gray-400 hover:text-white text-sm transition-all"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="bg-gradient-to-r from-purple-900/50 to-pink-900/50 border-b border-purple-900/30 px-4 py-3">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
@@ -565,7 +636,8 @@ export default function Journey() {
               })()}
             </button>
             <button onClick={() => setShowReminder(!showReminder)} className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all">🔔 Reminder</button>
-            <button onClick={() => setShowChangePicker(true)} className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all">🔄 Change</button>
+            {/* 🔄 Change now opens modal first */}
+            <button onClick={() => setShowChangeModal(true)} className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all">🔄 Change</button>
             <button onClick={() => {
               localStorage.removeItem('token')
               localStorage.removeItem('user')
