@@ -100,7 +100,10 @@
           if (!loggedIn && protectedPaths.includes(path)) {
             window.location.replace('/login')
           }
-        } catch(e) {}
+        } catch(e) {
+          //If localStorage throws(cleared, blocked), force login
+          window.location.replace('/login')
+        }
       })()
     </script>
 
