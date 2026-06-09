@@ -39,7 +39,6 @@ export default function Login() {
 
       if (data.token) {
         localStorage.setItem('token', data.token)
-        if (props.onLogin) props.onLogin()
         localStorage.setItem('user', JSON.stringify(data.user))
         localStorage.setItem('loginExpiry', 'never')
 
