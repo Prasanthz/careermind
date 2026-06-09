@@ -1,7 +1,9 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import CareerPicker from '../components/CareerPicker'
+
+const API = import.meta.env.VITE_API_URL
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function daysSince(isoDate) {
@@ -24,34 +26,20 @@ function formatDateTime() {
   return { date, time }
 }
 
-// ── Detect tracker type from task text ────────────────────────────────────────
-// Returns: { type: 'hours'|'pages'|'weeks'|null, max: number }
 function detectTracker(taskText) {
   if (!taskText) return { type: null, max: null }
-
-  // Hours: (5 hrs), (12 hours), (3 hr)
   const hoursMatch = taskText.match(/\((\d+)\s*h(?:rs?|ours?)?\)/i)
   if (hoursMatch) {
     const hrs = parseInt(hoursMatch[1])
     return hrs >= 3 ? { type: 'hours', max: hrs } : { type: null, max: null }
   }
-
-  // Pages: (240 pages), (320 page)
   const pagesMatch = taskText.match(/\((\d+)\s*pages?\)/i)
-  if (pagesMatch) {
-    return { type: 'pages', max: parseInt(pagesMatch[1]) }
-  }
-
-  // Weeks: (3 weeks), (2 week) → convert to days
+  if (pagesMatch) return { type: 'pages', max: parseInt(pagesMatch[1]) }
   const weeksMatch = taskText.match(/\((\d+)\s*weeks?\)/i)
-  if (weeksMatch) {
-    return { type: 'weeks', max: parseInt(weeksMatch[1]) * 7 }
-  }
-
+  if (weeksMatch) return { type: 'weeks', max: parseInt(weeksMatch[1]) * 7 }
   return { type: null, max: null }
 }
 
-// ── getTasksForDay with carry forward ─────────────────────────────────────────
 function getTasksForDay(tasks, durationDays, dayNumber, completedTasks, phaseIdx) {
   if (!tasks || tasks.length === 0) return []
   const daysPerTask = Math.floor(durationDays / tasks.length)
@@ -91,15 +79,31 @@ function nextMilestone(streak) {
   return STREAK_MILESTONES.find(m => m > streak) || 100
 }
 
+// ── DB sync helper ────────────────────────────────────────────────────────────
+async function saveProgressToDB(token, payload) {
+  if (!token) return
+  try {
+    await fetch(`${API}/api/journey-progress`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload)
+    })
+  } catch (e) {
+    console.error('Progress save failed:', e)
+  }
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function Journey() {
   const navigate = useNavigate()
+  const saveTimer = useRef(null)
 
   const [journey, setJourney] = useState(null)
   const [completedTasks, setCompletedTasks] = useState({})
-  const [taskProgress, setTaskProgress] = useState({}) // { "phaseIdx-taskIdx": number } — hours/pages/days
+  const [taskProgress, setTaskProgress] = useState({})
   const [points, setPoints] = useState(0)
   const [streak, setStreak] = useState(0)
+  const [lastActiveDay, setLastActiveDay] = useState(null)
   const [activeTab, setActiveTab] = useState('today')
   const [showChangePicker, setShowChangePicker] = useState(false)
   const [showInitialPicker, setShowInitialPicker] = useState(false)
@@ -114,20 +118,25 @@ export default function Journey() {
   const [reminderMsg, setReminderMsg] = useState('')
   const [showReminder, setShowReminder] = useState(false)
 
-  // ── Journey-specific localStorage keys ────────────────────────────────────
-  // Tied to started_at so each new journey gets fresh storage, no bleeding
-  const getJourneyKeys = useCallback((j) => {
-    const base = j?.started_at ? `_${j.started_at}` : ''
-    return {
-      completed: `completedTasks${base}`,
-      progress:  `taskProgress${base}`,
-    }
-  }, [])
-
   const getLocalKey = () => {
     const user = JSON.parse(localStorage.getItem('user') || '{}')
     return user?.id ? `journeyData_${user.id}` : 'journeyData'
   }
+
+  // ── Debounced DB save ──────────────────────────────────────────────────────
+  const scheduleSave = useCallback((ct, tp, pts, strk, lastDay) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      const token = localStorage.getItem('token')
+      saveProgressToDB(token, {
+        completed_tasks: ct,
+        task_progress: tp,
+        points: pts,
+        streak: strk,
+        last_active_day: lastDay
+      })
+    }, 1000) // save 1s after last change
+  }, [])
 
   // Clock tick
   useEffect(() => {
@@ -135,31 +144,42 @@ export default function Journey() {
     return () => clearInterval(timer)
   }, [])
 
-  // Load journey
+  // ── Load journey + progress from DB ───────────────────────────────────────
   useEffect(() => {
     const token = localStorage.getItem('token')
     const localKey = getLocalKey()
 
-    const applyJourney = (parsed) => {
-      setJourney(parsed)
-      const keys = getJourneyKeys(parsed)
-      const ct = localStorage.getItem(keys.completed)
-      if (ct) setCompletedTasks(JSON.parse(ct))
-      else setCompletedTasks({})
-      const tp = localStorage.getItem(keys.progress)
-      if (tp) setTaskProgress(JSON.parse(tp))
-      else setTaskProgress({})
-      setPoints(parseInt(localStorage.getItem('journeyPoints') || '0'))
-      setStreak(parseInt(localStorage.getItem('journeyStreak') || '0'))
+    const loadProgress = async (t) => {
+      try {
+        const res = await fetch(`${API}/api/journey-progress`, {
+          headers: { Authorization: `Bearer ${t}` }
+        })
+        const data = await res.json()
+        setCompletedTasks(data.completed_tasks || {})
+        setTaskProgress(data.task_progress || {})
+        setPoints(data.points || 0)
+        setStreak(data.streak || 0)
+        setLastActiveDay(data.last_active_day || null)
+      } catch (e) {
+        // fallback to empty
+        setCompletedTasks({})
+        setTaskProgress({})
+        setPoints(0)
+        setStreak(0)
+        setLastActiveDay(null)
+      }
     }
 
     const stored = localStorage.getItem(localKey)
     if (stored) {
       try {
-        applyJourney(JSON.parse(stored))
+        const parsed = JSON.parse(stored)
+        setJourney(parsed)
         setLoadingJourney(false)
         if (token) {
-          fetch(`${import.meta.env.VITE_API_URL}/api/quiz/journey`, {
+          loadProgress(token)
+          // sync journey to DB if needed
+          fetch(`${API}/api/quiz/journey`, {
             headers: { Authorization: `Bearer ${token}` }
           })
             .then(r => r.json())
@@ -169,13 +189,13 @@ export default function Journey() {
                 const dbNewer = new Date(data.journey.started_at) > new Date(local.started_at || 0)
                 if (dbNewer) {
                   localStorage.setItem(localKey, JSON.stringify(data.journey))
-                  applyJourney(data.journey)
+                  setJourney(data.journey)
                 }
               } else {
-                fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
+                fetch(`${API}/api/quiz/save-journey`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                  body: JSON.stringify({ journey: JSON.parse(stored) })
+                  body: JSON.stringify({ journey: parsed })
                 }).catch(() => {})
               }
             })
@@ -186,14 +206,15 @@ export default function Journey() {
     }
 
     if (token) {
-      fetch(`${import.meta.env.VITE_API_URL}/api/quiz/journey`, {
+      fetch(`${API}/api/quiz/journey`, {
         headers: { Authorization: `Bearer ${token}` }
       })
         .then(r => r.json())
-        .then(data => {
+        .then(async data => {
           if (data.journey) {
             localStorage.setItem(localKey, JSON.stringify(data.journey))
-            applyJourney(data.journey)
+            setJourney(data.journey)
+            await loadProgress(token)
           } else {
             setShowInitialPicker(true)
           }
@@ -213,7 +234,7 @@ export default function Journey() {
   useEffect(() => {
     const token = localStorage.getItem('token')
     if (!token) return
-    fetch(`${import.meta.env.VITE_API_URL}/api/reminder/get`, {
+    fetch(`${API}/api/reminder/get`, {
       headers: { Authorization: `Bearer ${token}` }
     })
       .then(r => r.json())
@@ -225,18 +246,15 @@ export default function Journey() {
   }, [])
 
   // Streak
-  const updateStreak = useCallback(() => {
+  const updateStreak = useCallback((currentStreak, currentLastDay) => {
     const todayKey = getTodayKey()
-    const lastActive = localStorage.getItem('lastActiveDay')
-    if (lastActive === todayKey) return
+    if (currentLastDay === todayKey) return { newStreak: currentStreak, newLastDay: currentLastDay }
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
     const yesterdayKey = yesterday.toISOString().split('T')[0]
-    const newStreak = lastActive === yesterdayKey ? streak + 1 : 1
-    setStreak(newStreak)
-    localStorage.setItem('journeyStreak', String(newStreak))
-    localStorage.setItem('lastActiveDay', todayKey)
-  }, [streak])
+    const newStreak = currentLastDay === yesterdayKey ? currentStreak + 1 : 1
+    return { newStreak, newLastDay: todayKey }
+  }, [])
 
   // Phase helpers
   const getPhaseProgress = useCallback((phaseIdx) => {
@@ -279,7 +297,7 @@ export default function Journey() {
     return { phase, phaseIdx: unlockedPhase, dayInPhase, duration, todayTasks }
   }, [journey, getUnlockedPhase, getDayInPhase, completedTasks])
 
-  // ── Add progress to a task (hours / pages / days) ─────────────────────────
+  // ── Add progress (hours/pages/days) ───────────────────────────────────────
   const addProgress = (phaseIdx, taskIdx, amount, max) => {
     const key = `${phaseIdx}-${taskIdx}`
     if (completedTasks[key]) return
@@ -287,49 +305,55 @@ export default function Journey() {
     const newVal = Math.min(current + amount, max)
     const updatedProgress = { ...taskProgress, [key]: newVal }
     setTaskProgress(updatedProgress)
-    const keys = getJourneyKeys(journey)
-    localStorage.setItem(keys.progress, JSON.stringify(updatedProgress))
-    updateStreak()
+
+    const { newStreak, newLastDay } = updateStreak(streak, lastActiveDay)
+    setStreak(newStreak)
+    setLastActiveDay(newLastDay)
+
+    let updatedCompleted = completedTasks
+    let newPts = points
 
     if (newVal >= max) {
-      const updatedCompleted = { ...completedTasks, [key]: true }
-      const newPts = points + 10
+      updatedCompleted = { ...completedTasks, [key]: true }
+      newPts = points + 10
       setPoints(newPts)
-      localStorage.setItem('journeyPoints', String(newPts))
       setCompletedTasks(updatedCompleted)
-      localStorage.setItem(keys.completed, JSON.stringify(updatedCompleted))
     }
+
+    scheduleSave(updatedCompleted, updatedProgress, newPts, newStreak, newLastDay)
   }
 
-  // Fix 2: toggleTask — once checked, locked. No unchecking.
+  // ── Toggle task ────────────────────────────────────────────────────────────
   const toggleTask = (phaseIdx, taskIdx, allowedByDay = true) => {
     if (!allowedByDay) return
     const unlockedPhase = getUnlockedPhase()
     if (phaseIdx > unlockedPhase) return
     const key = `${phaseIdx}-${taskIdx}`
-    if (completedTasks[key]) return // 🔒 locked
+    if (completedTasks[key]) return
 
-    const updated = { ...completedTasks, [key]: true }
+    const updatedCompleted = { ...completedTasks, [key]: true }
     const newPts = points + 10
     setPoints(newPts)
-    localStorage.setItem('journeyPoints', String(newPts))
-    updateStreak()
-    setCompletedTasks(updated)
-    const keys = getJourneyKeys(journey)
-    localStorage.setItem(keys.completed, JSON.stringify(updated))
+    setCompletedTasks(updatedCompleted)
+
+    const { newStreak, newLastDay } = updateStreak(streak, lastActiveDay)
+    setStreak(newStreak)
+    setLastActiveDay(newLastDay)
+
+    scheduleSave(updatedCompleted, taskProgress, newPts, newStreak, newLastDay)
   }
 
   // Badges
   const getBadges = () => {
     const totalDone = Object.keys(completedTasks).length
     const badges = []
-    if (totalDone >= 1)  badges.push({ icon: '🌱', label: 'First Step',      desc: 'Completed your first task' })
-    if (totalDone >= 5)  badges.push({ icon: '🔥', label: 'On Fire',         desc: '5 tasks completed' })
-    if (totalDone >= 10) badges.push({ icon: '💎', label: 'Diamond Focus',   desc: '10 tasks done' })
-    if (streak >= 3)     badges.push({ icon: '⚡', label: '3-Day Streak',    desc: 'Active 3 days in a row' })
-    if (streak >= 7)     badges.push({ icon: '🏆', label: 'Weekly Warrior',  desc: '7-day streak!' })
-    if (streak >= 30)    badges.push({ icon: '🔱', label: 'Monthly Master',  desc: '30-day streak!' })
-    if (points >= 100)   badges.push({ icon: '💯', label: 'Century',         desc: '100 points earned' })
+    if (totalDone >= 1)  badges.push({ icon: '🌱', label: 'First Step',       desc: 'Completed your first task' })
+    if (totalDone >= 5)  badges.push({ icon: '🔥', label: 'On Fire',          desc: '5 tasks completed' })
+    if (totalDone >= 10) badges.push({ icon: '💎', label: 'Diamond Focus',    desc: '10 tasks done' })
+    if (streak >= 3)     badges.push({ icon: '⚡', label: '3-Day Streak',     desc: 'Active 3 days in a row' })
+    if (streak >= 7)     badges.push({ icon: '🏆', label: 'Weekly Warrior',   desc: '7-day streak!' })
+    if (streak >= 30)    badges.push({ icon: '🔱', label: 'Monthly Master',   desc: '30-day streak!' })
+    if (points >= 100)   badges.push({ icon: '💯', label: 'Century',          desc: '100 points earned' })
     if (getPhaseProgress(0) === 100) badges.push({ icon: '🎯', label: 'Phase 1 Complete', desc: 'Finished Phase 1!' })
     return badges
   }
@@ -340,7 +364,7 @@ export default function Journey() {
     setReminderMsg('')
     try {
       const token = localStorage.getItem('token')
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/reminder/set`, {
+      const res = await fetch(`${API}/api/reminder/set`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ enabled: reminderEnabled, time: reminderTime })
@@ -355,14 +379,14 @@ export default function Journey() {
     }
   }
 
-  // Generate journey — clears journey-specific keys for old journey, not blindly global
+  // Generate journey
   const generateJourney = async (chosenCareer) => {
     setGeneratingJourney(true)
     setError(null)
     try {
       const result = JSON.parse(localStorage.getItem('result') || '{}')
       const token = localStorage.getItem('token')
-      const res = await fetch(`${import.meta.env.VITE_API_URL}/api/quiz/generate-journey`, {
+      const res = await fetch(`${API}/api/quiz/generate-journey`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -387,36 +411,32 @@ export default function Journey() {
         started_at: new Date().toISOString(),
       }
       const localKey = getLocalKey()
-
-      // Clear OLD journey's specific keys before saving new journey
-      if (journey) {
-        const oldKeys = getJourneyKeys(journey)
-        localStorage.removeItem(oldKeys.completed)
-        localStorage.removeItem(oldKeys.progress)
-      }
-
       localStorage.setItem(localKey, JSON.stringify(payload))
+
       if (token) {
-        fetch(`${import.meta.env.VITE_API_URL}/api/quiz/save-journey`, {
+        // Save new journey to DB
+        fetch(`${API}/api/quiz/save-journey`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
           body: JSON.stringify({ journey: payload })
         }).catch(() => {})
-      }
 
-      // Also clear legacy global keys (migration cleanup)
-      localStorage.removeItem('completedTasks')
-      localStorage.removeItem('taskHours')
-      localStorage.removeItem('taskProgress')
-      localStorage.setItem('journeyPoints', '0')
-      localStorage.setItem('journeyStreak', '0')
-      localStorage.removeItem('lastActiveDay')
+        // Reset progress in DB
+        await saveProgressToDB(token, {
+          completed_tasks: {},
+          task_progress: {},
+          points: 0,
+          streak: 0,
+          last_active_day: null
+        })
+      }
 
       setJourney(payload)
       setCompletedTasks({})
       setTaskProgress({})
       setPoints(0)
       setStreak(0)
+      setLastActiveDay(null)
       setShowChangePicker(false)
       setShowInitialPicker(false)
       setExpandedPhase(0)
@@ -428,7 +448,7 @@ export default function Journey() {
     }
   }
 
-  // ── Universal Progress Tracker UI ─────────────────────────────────────────
+  // ── Progress Tracker UI ────────────────────────────────────────────────────
   const ProgressTracker = ({ phaseIdx, taskIdx, tracker, taskKey }) => {
     const { type, max } = tracker
     const done = !!completedTasks[taskKey]
@@ -516,11 +536,11 @@ export default function Journey() {
   const totalJourneyDays = journey.roadmap.reduce((sum, p) => sum + (p.duration_days || 60), 0)
 
   const ALL_BADGES = [
-    { icon: '🔥', label: 'On Fire',         desc: '5 tasks' },
-    { icon: '💎', label: 'Diamond Focus',   desc: '10 tasks' },
-    { icon: '🏆', label: 'Weekly Warrior',  desc: '7-day streak' },
-    { icon: '🔱', label: 'Monthly Master',  desc: '30-day streak' },
-    { icon: '💯', label: 'Century',         desc: '100 points' },
+    { icon: '🔥', label: 'On Fire',          desc: '5 tasks' },
+    { icon: '💎', label: 'Diamond Focus',    desc: '10 tasks' },
+    { icon: '🏆', label: 'Weekly Warrior',   desc: '7-day streak' },
+    { icon: '🔱', label: 'Monthly Master',   desc: '30-day streak' },
+    { icon: '💯', label: 'Century',          desc: '100 points' },
     { icon: '🎯', label: 'Phase 1 Complete', desc: 'Finish Phase 1' },
   ]
   const lockedBadges = ALL_BADGES.filter(b => !badges.find(e => e.label === b.label))
@@ -546,7 +566,12 @@ export default function Journey() {
             </button>
             <button onClick={() => setShowReminder(!showReminder)} className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all">🔔 Reminder</button>
             <button onClick={() => setShowChangePicker(true)} className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-purple-500 hover:text-white transition-all">🔄 Change</button>
-            <button onClick={() => { localStorage.removeItem('token'); localStorage.removeItem('user'); localStorage.removeItem('loginExpiry'); navigate('/login', { replace: true }) }} className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all">🚪</button>
+            <button onClick={() => {
+              localStorage.removeItem('token')
+              localStorage.removeItem('user')
+              localStorage.removeItem('loginExpiry')
+              navigate('/login', { replace: true })
+            }} className="text-sm text-gray-400 border border-purple-900/50 px-3 py-2 rounded-lg hover:border-red-500/50 hover:text-red-400 transition-all">🚪</button>
           </div>
         </div>
 
