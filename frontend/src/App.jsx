@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom'
 import SampleResult from './pages/SampleResult'
 import Landing from './pages/Landing'
 import Login from './pages/Login'
@@ -30,7 +31,6 @@ const AuthRoute = ({ children }) => {
   return children
 }
 
-// Quiz Route
 const QuizRoute = () => {
   if (isLoggedIn()) {
     return <Quiz guestMode={false} />
@@ -38,7 +38,6 @@ const QuizRoute = () => {
   return <Quiz guestMode={true} />
 }
 
-// Result Route
 const ResultRoute = () => {
   if (isLoggedIn()) {
     if (!hasResult()) return <Navigate to="/quiz" replace />
@@ -50,7 +49,6 @@ const ResultRoute = () => {
   return <Navigate to="/" replace />
 }
 
-// Journey Route — must be logged in
 const JourneyRoute = () => {
   if (!isLoggedIn()) {
     return <Navigate to="/login" replace />
@@ -58,7 +56,6 @@ const JourneyRoute = () => {
   return <Journey />
 }
 
-// Protected Route
 const ProtectedRoute = ({ children }) => {
   if (!isLoggedIn()) {
     return <Navigate to="/login" replace />
@@ -66,14 +63,36 @@ const ProtectedRoute = ({ children }) => {
   return children
 }
 
+function StorageGuard() {
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  useEffect(() => {
+    const check = () => {
+      const token = localStorage.getItem('token')
+      const protectedPaths = ['/journey', '/profile', '/admin', '/result']
+      if (!token && protectedPaths.includes(location.pathname)) {
+        navigate('/login', { replace: true })
+      }
+    }
+    window.addEventListener('storage', check)
+    document.addEventListener('visibilitychange', check)
+    return () => {
+      window.removeEventListener('storage', check)
+      document.removeEventListener('visibilitychange', check)
+    }
+  }, [location.pathname, navigate])
+
+  return null
+}
+
 function App() {
   return (
     <BrowserRouter>
+      <StorageGuard />
       <Routes>
-        {/* Public */}
         <Route path="/" element={<Landing />} />
 
-        {/* Auth */}
         <Route path="/login" element={
           <AuthRoute><Login /></AuthRoute>
         } />
@@ -81,29 +100,19 @@ function App() {
           <AuthRoute><Register /></AuthRoute>
         } />
 
-        {/* Quiz — guests allowed */}
         <Route path="/quiz" element={<QuizRoute />} />
-
-        {/* Result — guests with result allowed */}
         <Route path="/result" element={<ResultRoute />} />
-
-        {/* Journey — logged in only */}
         <Route path="/journey" element={<JourneyRoute />} />
 
-        {/* Profile — logged in only */}
         <Route path="/profile" element={
           <ProtectedRoute><Profile /></ProtectedRoute>
         } />
 
-        {/* Admin */}
         <Route path="/admin" element={
           <ProtectedRoute><Admin /></ProtectedRoute>
         } />
 
-        {/* Sample result */}
         <Route path="/sample-result" element={<SampleResult />} />
-
-        {/* Unknown → landing */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
