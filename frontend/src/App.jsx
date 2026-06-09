@@ -74,24 +74,16 @@ function StorageGuard({ loggedIn, setLoggedIn }) {
       }
     }
 
-    // SW message listener
-    const onSWMessage = (e) => {
-      if (e.data === 'REDIRECT_LOGIN') check()
-    }
+    // Poll every 2 seconds — catches Android PWA storage clear
+    const interval = setInterval(check, 2000)
 
-    navigator.serviceWorker?.addEventListener('message', onSWMessage)
     window.addEventListener('storage', check)
     window.addEventListener('focus', check)
     window.addEventListener('pageshow', check)
     document.addEventListener('visibilitychange', check)
 
-    // Ping SW to check auth on every mount
-    if (navigator.serviceWorker?.controller) {
-      navigator.serviceWorker.controller.postMessage('CHECK_AUTH')
-    }
-
     return () => {
-      navigator.serviceWorker?.removeEventListener('message', onSWMessage)
+      clearInterval(interval)
       window.removeEventListener('storage', check)
       window.removeEventListener('focus', check)
       window.removeEventListener('pageshow', check)
@@ -106,7 +98,6 @@ function App() {
   const [loggedIn, setLoggedIn] = useState(getLoginState)
 
   useEffect(() => {
-    // Register SW
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error)
     }
