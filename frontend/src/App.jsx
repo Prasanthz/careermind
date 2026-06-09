@@ -70,15 +70,21 @@ function StorageGuard() {
   useEffect(() => {
     const check = () => {
       const token = localStorage.getItem('token')
+      const expiry = localStorage.getItem('loginExpiry')
+      const loggedIn = token && expiry && (expiry === 'never' || Date.now() < parseInt(expiry))
       const protectedPaths = ['/journey', '/profile', '/admin', '/result']
-      if (!token && protectedPaths.includes(location.pathname)) {
+      if (!loggedIn && protectedPaths.includes(location.pathname)) {
         navigate('/login', { replace: true })
       }
     }
+
     window.addEventListener('storage', check)
+    window.addEventListener('focus', check)
     document.addEventListener('visibilitychange', check)
+
     return () => {
       window.removeEventListener('storage', check)
+      window.removeEventListener('focus', check)
       document.removeEventListener('visibilitychange', check)
     }
   }, [location.pathname, navigate])
