@@ -70,12 +70,26 @@ function StorageGuard({ loggedIn, setLoggedIn }) {
       }
     }
 
+    // SW message listener
+    const onSWMessage = (e) => {
+      if (e.data === 'REDIRECT_LOGIN') check()
+    }
+
+    navigator.serviceWorker?.addEventListener('message', onSWMessage)
     window.addEventListener('storage', check)
     window.addEventListener('focus', check)
     window.addEventListener('pageshow', check)
     document.addEventListener('visibilitychange', check)
 
+    // Register SW and send CHECK_AUTH on every mount
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(reg => {
+        reg.active?.postMessage('CHECK_AUTH')
+      })
+    }
+
     return () => {
+      navigator.serviceWorker?.removeEventListener('message', onSWMessage)
       window.removeEventListener('storage', check)
       window.removeEventListener('focus', check)
       window.removeEventListener('pageshow', check)
@@ -88,6 +102,13 @@ function StorageGuard({ loggedIn, setLoggedIn }) {
 
 function App() {
   const [loggedIn, setLoggedIn] = useState(getLoginState)
+
+  // Register service worker
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js').catch(console.error)
+    }
+  }, [])
 
   return (
     <BrowserRouter>
