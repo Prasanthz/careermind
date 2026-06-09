@@ -32,7 +32,6 @@
         min-height: 100vh;
       }
 
-      /* ── Splash Screen ── */
       #splash {
         position: fixed;
         inset: 0;
@@ -50,7 +49,6 @@
         pointer-events: none;
       }
 
-      /* Logo image — same logo.svg your app uses */
       #splash-logo {
         width: 280px;
         max-width: 75vw;
@@ -58,7 +56,6 @@
         filter: drop-shadow(0 0 32px rgba(124, 58, 237, 0.35));
       }
 
-      /* Loading dots */
       #splash-dots {
         display: flex;
         gap: 8px;
@@ -91,6 +88,22 @@
   </head>
   <body>
 
+    <!-- Auth guard — runs before React, catches storage-cleared state on PWA reopen -->
+    <script>
+      (function() {
+        try {
+          const token = localStorage.getItem('token')
+          const expiry = localStorage.getItem('loginExpiry')
+          const loggedIn = token && expiry && (expiry === 'never' || Date.now() < parseInt(expiry))
+          const path = window.location.pathname
+          const protectedPaths = ['/journey', '/profile', '/admin', '/result']
+          if (!loggedIn && protectedPaths.includes(path)) {
+            window.location.replace('/login')
+          }
+        } catch(e) {}
+      })()
+    </script>
+
     <div id="splash">
       <div style="display:flex; align-items:center; justify-content:center; transform:translateX(8%);">
         <img id="splash-logo" src="/logo.svg" alt="CareerMind AI" />
@@ -106,7 +119,6 @@
     <script type="module" src="/src/main.jsx"></script>
 
     <script>
-      // Hide splash once page is fully loaded, min 1.4s so logo is seen
       const hideSplash = () => {
         const splash = document.getElementById('splash')
         if (!splash) return
