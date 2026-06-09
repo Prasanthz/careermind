@@ -11,11 +11,15 @@ import Admin from './pages/Admin'
 import Profile from './pages/Profile'
 
 const getLoginState = () => {
-  const token = localStorage.getItem('token')
-  const expiry = localStorage.getItem('loginExpiry')
-  if (!token || !expiry) return false
-  if (expiry === 'never') return true
-  return Date.now() < parseInt(expiry)
+  try {
+    const token = localStorage.getItem('token')
+    const expiry = localStorage.getItem('loginExpiry')
+    if (!token || !expiry) return false
+    if (expiry === 'never') return true
+    return Date.now() < parseInt(expiry)
+  } catch (e) {
+    return false
+  }
 }
 
 const hasResult = () => !!localStorage.getItem('result')
@@ -81,11 +85,9 @@ function StorageGuard({ loggedIn, setLoggedIn }) {
     window.addEventListener('pageshow', check)
     document.addEventListener('visibilitychange', check)
 
-    // Register SW and send CHECK_AUTH on every mount
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.ready.then(reg => {
-        reg.active?.postMessage('CHECK_AUTH')
-      })
+    // Ping SW to check auth on every mount
+    if (navigator.serviceWorker?.controller) {
+      navigator.serviceWorker.controller.postMessage('CHECK_AUTH')
     }
 
     return () => {
@@ -103,8 +105,8 @@ function StorageGuard({ loggedIn, setLoggedIn }) {
 function App() {
   const [loggedIn, setLoggedIn] = useState(getLoginState)
 
-  // Register service worker
   useEffect(() => {
+    // Register SW
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(console.error)
     }
